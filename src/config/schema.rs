@@ -206,6 +206,9 @@ pub struct Config {
     /// Voice transcription configuration (Whisper API via Groq).
     #[serde(default)]
     pub transcription: TranscriptionConfig,
+    /// Standard Operating Procedures (SOP) configuration.
+    #[serde(default)]
+    pub sop: SopConfig,
 }
 
 // ── Delegate Agents ──────────────────────────────────────────────
@@ -360,6 +363,43 @@ impl Default for TranscriptionConfig {
             model: default_transcription_model(),
             language: None,
             max_duration_secs: default_transcription_max_duration_secs(),
+        }
+    }
+}
+
+// ── SOP Config ──────────────────────────────────────────────────
+
+/// Configuration for the Standard Operating Procedures system.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SopConfig {
+    /// Enable the SOP subsystem (default: false).
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Directory containing SOP definitions (default: `<workspace>/sops`).
+    #[serde(default)]
+    pub sops_dir: Option<String>,
+
+    /// Default execution mode for SOPs that don't specify one.
+    #[serde(default)]
+    pub default_execution_mode: crate::sop::SopExecutionMode,
+
+    /// Maximum total concurrent SOP executions across all SOPs.
+    #[serde(default = "default_sop_max_concurrent_total")]
+    pub max_concurrent_total: usize,
+}
+
+fn default_sop_max_concurrent_total() -> usize {
+    5
+}
+
+impl Default for SopConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            sops_dir: None,
+            default_execution_mode: crate::sop::SopExecutionMode::default(),
+            max_concurrent_total: default_sop_max_concurrent_total(),
         }
     }
 }
@@ -3419,6 +3459,7 @@ impl Default for Config {
             hardware: HardwareConfig::default(),
             query_classification: QueryClassificationConfig::default(),
             transcription: TranscriptionConfig::default(),
+            sop: SopConfig::default(),
         }
     }
 }
@@ -4689,6 +4730,7 @@ default_temperature = 0.7
             hooks: HooksConfig::default(),
             hardware: HardwareConfig::default(),
             transcription: TranscriptionConfig::default(),
+            sop: SopConfig::default(),
         };
 
         let toml_str = toml::to_string_pretty(&config).unwrap();
@@ -4863,6 +4905,7 @@ tool_dispatcher = "xml"
             hooks: HooksConfig::default(),
             hardware: HardwareConfig::default(),
             transcription: TranscriptionConfig::default(),
+            sop: SopConfig::default(),
         };
 
         config.save().await.unwrap();

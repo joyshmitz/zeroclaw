@@ -79,6 +79,7 @@ mod security;
 mod service;
 mod skillforge;
 mod skills;
+mod sop;
 mod tools;
 mod tunnel;
 mod util;
@@ -355,6 +356,12 @@ Examples:
     Skills {
         #[command(subcommand)]
         skill_command: SkillCommands,
+    },
+
+    /// Manage SOPs (standard operating procedures)
+    Sop {
+        #[command(subcommand)]
+        sop_command: SopCommands,
     },
 
     /// Migrate data from other agent runtimes
@@ -973,6 +980,8 @@ async fn main() -> Result<()> {
         } => integrations::handle_command(integration_command, &config),
 
         Commands::Skills { skill_command } => skills::handle_command(skill_command, &config),
+
+        Commands::Sop { sop_command } => sop::handle_command(sop_command, &config),
 
         Commands::Migrate { migrate_command } => {
             migration::handle_command(migrate_command, &config).await

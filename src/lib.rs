@@ -66,6 +66,7 @@ pub mod runtime;
 pub(crate) mod security;
 pub(crate) mod service;
 pub(crate) mod skills;
+pub mod sop;
 pub mod tools;
 pub(crate) mod tunnel;
 pub(crate) mod util;
@@ -156,6 +157,23 @@ pub enum SkillCommands {
     /// Remove an installed skill
     Remove {
         /// Skill name to remove
+        name: String,
+    },
+}
+
+/// SOP management subcommands
+#[derive(Subcommand, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SopCommands {
+    /// List all configured SOPs
+    List,
+    /// Validate SOP definitions (all, or a specific one by name)
+    Validate {
+        /// SOP name to validate (validates all if omitted)
+        name: Option<String>,
+    },
+    /// Show detailed info about a specific SOP
+    Show {
+        /// SOP name
         name: String,
     },
 }
