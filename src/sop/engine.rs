@@ -270,6 +270,14 @@ impl SopEngine {
             .collect()
     }
 
+    // ── Test helpers ──────────────────────────────────────────────
+
+    /// Replace loaded SOPs (for testing from other modules).
+    #[cfg(test)]
+    pub(crate) fn set_sops_for_test(&mut self, sops: Vec<Sop>) {
+        self.sops = sops;
+    }
+
     // ── Internal helpers ────────────────────────────────────────
 
     fn last_finished_run(&self, sop_name: &str) -> Option<&SopRun> {

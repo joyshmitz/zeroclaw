@@ -48,6 +48,9 @@ pub mod schedule;
 pub mod schema;
 pub mod screenshot;
 pub mod shell;
+pub mod sop_execute;
+pub mod sop_list;
+pub mod sop_status;
 pub mod traits;
 pub mod web_search_tool;
 
@@ -84,6 +87,9 @@ pub use schedule::ScheduleTool;
 pub use schema::{CleaningStrategy, SchemaCleanr};
 pub use screenshot::ScreenshotTool;
 pub use shell::ShellTool;
+pub use sop_execute::SopExecuteTool;
+pub use sop_list::SopListTool;
+pub use sop_status::SopStatusTool;
 pub use traits::Tool;
 #[allow(unused_imports)]
 pub use traits::{ToolResult, ToolSpec};
@@ -321,6 +327,20 @@ pub fn all_tools_with_runtime(
         .with_parent_tools(parent_tools)
         .with_multimodal_config(root_config.multimodal.clone());
         tool_arcs.push(Arc::new(delegate_tool));
+    }
+
+    // SOP tools (when enabled)
+    if root_config.sop.enabled {
+        let engine = Arc::new(std::sync::Mutex::new(crate::sop::SopEngine::new(
+            root_config.sop.clone(),
+        )));
+        // Pre-load SOPs from workspace
+        if let Ok(mut e) = engine.lock() {
+            e.reload(workspace_dir);
+        }
+        tool_arcs.push(Arc::new(SopListTool::new(engine.clone())));
+        tool_arcs.push(Arc::new(SopExecuteTool::new(engine.clone())));
+        tool_arcs.push(Arc::new(SopStatusTool::new(engine)));
     }
 
     boxed_registry_from_arcs(tool_arcs)
