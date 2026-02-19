@@ -76,7 +76,7 @@ impl Tool for SopApproveTool {
         // Audit logging (engine lock dropped, safe to await)
         if let Some(ref audit) = self.audit {
             if let Some(ref run) = run_snapshot {
-                if let Err(e) = audit.log_run_complete(run).await {
+                if let Err(e) = audit.log_approval(run, run.current_step).await {
                     warn!("SOP audit log after approve failed: {e}");
                 }
             }
@@ -136,7 +136,7 @@ mod tests {
         }
     }
 
-    fn engine_with_run() -> Arc<Mutex<SopEngine>> {
+    fn engine_with_run() -> (Arc<Mutex<SopEngine>>, String) {
         let mut engine = SopEngine::new(SopConfig::default());
         engine.set_sops_for_test(vec![test_sop()]);
         let event = SopEvent {
@@ -147,14 +147,20 @@ mod tests {
         };
         // Start run — Supervised mode → WaitApproval
         engine.start_run("test-sop", event).unwrap();
-        Arc::new(Mutex::new(engine))
+        let run_id = engine
+            .active_runs()
+            .keys()
+            .next()
+            .expect("expected active run")
+            .clone();
+        (Arc::new(Mutex::new(engine)), run_id)
     }
 
     #[tokio::test]
     async fn approve_waiting_run() {
-        let engine = engine_with_run();
+        let (engine, run_id) = engine_with_run();
         let tool = SopApproveTool::new(engine);
-        let result = tool.execute(json!({"run_id": "run-000001"})).await.unwrap();
+        let result = tool.execute(json!({"run_id": run_id})).await.unwrap();
         assert!(result.success);
         assert!(result.output.contains("Approved"));
         assert!(result.output.contains("Step one"));
@@ -190,7 +196,7 @@ mod tests {
 
     #[tokio::test]
     async fn approve_writes_audit() {
-        let engine = engine_with_run();
+        let (engine, run_id) = engine_with_run();
         let tmp = tempfile::tempdir().unwrap();
         let mem_cfg = crate::config::MemoryConfig {
             backend: "sqlite".into(),
@@ -201,12 +207,25 @@ mod tests {
         let audit = Arc::new(SopAuditLogger::new(memory.clone()));
 
         let tool = SopApproveTool::new(engine).with_audit(audit.clone());
-        let result = tool.execute(json!({"run_id": "run-000001"})).await.unwrap();
+        let result = tool.execute(json!({"run_id": &run_id})).await.unwrap();
         assert!(result.success);
 
-        // Verify audit entry was written for the approved run
-        let stored = audit.get_run("run-000001").await.unwrap();
-        assert!(stored.is_some(), "audit should persist run after approve");
+        // Verify approval audit entry was written (stored under sop_approval_ key)
+        let entries = memory
+            .list(
+                Some(&crate::memory::traits::MemoryCategory::Custom("sop".into())),
+                None,
+            )
+            .await
+            .unwrap();
+        let approval_keys: Vec<_> = entries
+            .iter()
+            .filter(|e| e.key.starts_with("sop_approval_"))
+            .collect();
+        assert!(
+            !approval_keys.is_empty(),
+            "approval audit should be written on approve"
+        );
     }
 
     #[tokio::test]

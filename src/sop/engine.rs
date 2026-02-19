@@ -132,7 +132,11 @@ impl SopEngine {
         }
 
         self.run_counter += 1;
-        let run_id = format!("run-{:06}", self.run_counter);
+        let epoch_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let run_id = format!("run-{epoch_secs}-{:04}", self.run_counter);
         let now = now_iso8601();
 
         let run = SopRun {
@@ -358,6 +362,13 @@ impl SopEngine {
         let run_id_owned = run.run_id.clone();
         self.finished_runs.push(run);
 
+        // Evict oldest finished runs when over capacity
+        let max = self.config.max_finished_runs;
+        if max > 0 && self.finished_runs.len() > max {
+            let excess = self.finished_runs.len() - max;
+            self.finished_runs.drain(..excess);
+        }
+
         match status {
             SopRunStatus::Failed => SopRunAction::Failed {
                 run_id: run_id_owned,
@@ -549,7 +560,7 @@ fn format_step_context(sop: &Sop, run: &SopRun, step: &SopStep) -> String {
 
 // ── Utilities ───────────────────────────────────────────────────
 
-fn now_iso8601() -> String {
+pub(crate) fn now_iso8601() -> String {
     // Use chrono if available, otherwise fallback to SystemTime
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -683,6 +694,26 @@ mod tests {
         let mut engine = SopEngine::new(SopConfig::default());
         engine.sops = sops;
         engine
+    }
+
+    /// Extract run_id from any SopRunAction variant.
+    fn extract_run_id(action: &SopRunAction) -> &str {
+        match action {
+            SopRunAction::ExecuteStep { run_id, .. }
+            | SopRunAction::WaitApproval { run_id, .. }
+            | SopRunAction::Completed { run_id, .. }
+            | SopRunAction::Failed { run_id, .. } => run_id,
+        }
+    }
+
+    /// Get the first active run_id from the engine (for tests with a single run).
+    fn first_active_run_id(engine: &SopEngine) -> String {
+        engine
+            .active_runs()
+            .keys()
+            .next()
+            .expect("expected at least one active run")
+            .clone()
     }
 
     // ── Trigger matching ────────────────────────────────
@@ -907,9 +938,9 @@ mod tests {
             SopPriority::Normal,
         )]);
         let action = engine.start_run("s1", manual_event()).unwrap();
-        assert!(
-            matches!(action, SopRunAction::ExecuteStep { ref run_id, .. } if run_id == "run-000001")
-        );
+        let run_id = extract_run_id(&action);
+        assert!(run_id.starts_with("run-"));
+        assert!(matches!(action, SopRunAction::ExecuteStep { .. }));
         assert_eq!(engine.active_runs().len(), 1);
     }
 
@@ -926,12 +957,13 @@ mod tests {
             SopExecutionMode::Auto,
             SopPriority::Normal,
         )]);
-        engine.start_run("s1", manual_event()).unwrap();
+        let action = engine.start_run("s1", manual_event()).unwrap();
+        let run_id = extract_run_id(&action).to_string();
 
         // Complete step 1
         let action = engine
             .advance_step(
-                "run-000001",
+                &run_id,
                 SopStepResult {
                     step_number: 1,
                     status: SopStepStatus::Completed,
@@ -948,7 +980,7 @@ mod tests {
         // Complete step 2
         let action = engine
             .advance_step(
-                "run-000001",
+                &run_id,
                 SopStepResult {
                     step_number: 2,
                     status: SopStepStatus::Completed,
@@ -971,11 +1003,12 @@ mod tests {
             SopExecutionMode::Auto,
             SopPriority::Normal,
         )]);
-        engine.start_run("s1", manual_event()).unwrap();
+        let action = engine.start_run("s1", manual_event()).unwrap();
+        let run_id = extract_run_id(&action).to_string();
 
         let action = engine
             .advance_step(
-                "run-000001",
+                &run_id,
                 SopStepResult {
                     step_number: 1,
                     status: SopStepStatus::Failed,
@@ -999,8 +1032,9 @@ mod tests {
             SopExecutionMode::Auto,
             SopPriority::Normal,
         )]);
-        engine.start_run("s1", manual_event()).unwrap();
-        engine.cancel_run("run-000001").unwrap();
+        let action = engine.start_run("s1", manual_event()).unwrap();
+        let run_id = extract_run_id(&action).to_string();
+        engine.cancel_run(&run_id).unwrap();
         assert!(engine.active_runs().is_empty());
         let finished = engine.finished_runs(None);
         assert_eq!(finished[0].status, SopRunStatus::Cancelled);
@@ -1051,11 +1085,12 @@ mod tests {
         sop.cooldown_secs = 3600; // 1 hour
         let mut engine = engine_with_sops(vec![sop]);
 
-        engine.start_run("s1", manual_event()).unwrap();
+        let action = engine.start_run("s1", manual_event()).unwrap();
+        let run_id = extract_run_id(&action).to_string();
         // Complete both steps
         engine
             .advance_step(
-                "run-000001",
+                &run_id,
                 SopStepResult {
                     step_number: 1,
                     status: SopStepStatus::Completed,
@@ -1067,7 +1102,7 @@ mod tests {
             .unwrap();
         engine
             .advance_step(
-                "run-000001",
+                &run_id,
                 SopStepResult {
                     step_number: 2,
                     status: SopStepStatus::Completed,
@@ -1116,16 +1151,17 @@ mod tests {
 
         // Step 1: WaitApproval
         let action = engine.start_run("s1", manual_event()).unwrap();
+        let run_id = extract_run_id(&action).to_string();
         assert!(matches!(action, SopRunAction::WaitApproval { .. }));
 
         // Approve step 1
-        let action = engine.approve_step("run-000001").unwrap();
+        let action = engine.approve_step(&run_id).unwrap();
         assert!(matches!(action, SopRunAction::ExecuteStep { .. }));
 
         // Complete step 1, step 2 should also WaitApproval
         let action = engine
             .advance_step(
-                "run-000001",
+                &run_id,
                 SopStepResult {
                     step_number: 1,
                     status: SopStepStatus::Completed,
@@ -1180,17 +1216,18 @@ mod tests {
             SopExecutionMode::Supervised,
             SopPriority::Normal,
         )]);
-        engine.start_run("s1", manual_event()).unwrap();
+        let action = engine.start_run("s1", manual_event()).unwrap();
+        let run_id = extract_run_id(&action).to_string();
 
         // Run should be WaitingApproval
-        let run = engine.active_runs().get("run-000001").unwrap();
+        let run = engine.active_runs().get(&run_id).unwrap();
         assert_eq!(run.status, SopRunStatus::WaitingApproval);
 
         // Approve
-        let action = engine.approve_step("run-000001").unwrap();
+        let action = engine.approve_step(&run_id).unwrap();
         assert!(matches!(action, SopRunAction::ExecuteStep { .. }));
 
-        let run = engine.active_runs().get("run-000001").unwrap();
+        let run = engine.active_runs().get(&run_id).unwrap();
         assert_eq!(run.status, SopRunStatus::Running);
     }
 
@@ -1201,8 +1238,9 @@ mod tests {
             SopExecutionMode::Auto,
             SopPriority::Normal,
         )]);
-        engine.start_run("s1", manual_event()).unwrap();
-        assert!(engine.approve_step("run-000001").is_err());
+        let action = engine.start_run("s1", manual_event()).unwrap();
+        let run_id = extract_run_id(&action).to_string();
+        assert!(engine.approve_step(&run_id).is_err());
     }
 
     // ── Context formatting ──────────────────────────────
@@ -1241,19 +1279,20 @@ mod tests {
             SopExecutionMode::Auto,
             SopPriority::Normal,
         )]);
-        engine.start_run("s1", manual_event()).unwrap();
+        let action = engine.start_run("s1", manual_event()).unwrap();
+        let run_id = extract_run_id(&action).to_string();
 
         // Active
-        assert!(engine.get_run("run-000001").is_some());
+        assert!(engine.get_run(&run_id).is_some());
         assert_eq!(
-            engine.get_run("run-000001").unwrap().status,
+            engine.get_run(&run_id).unwrap().status,
             SopRunStatus::Running
         );
 
         // Complete
         engine
             .advance_step(
-                "run-000001",
+                &run_id,
                 SopStepResult {
                     step_number: 1,
                     status: SopStepStatus::Completed,
@@ -1265,7 +1304,7 @@ mod tests {
             .unwrap();
         engine
             .advance_step(
-                "run-000001",
+                &run_id,
                 SopStepResult {
                     step_number: 2,
                     status: SopStepStatus::Completed,
@@ -1277,9 +1316,9 @@ mod tests {
             .unwrap();
 
         // Now finished — still findable
-        assert!(engine.get_run("run-000001").is_some());
+        assert!(engine.get_run(&run_id).is_some());
         assert_eq!(
-            engine.get_run("run-000001").unwrap().status,
+            engine.get_run(&run_id).unwrap().status,
             SopRunStatus::Completed
         );
 
@@ -1324,10 +1363,11 @@ mod tests {
         engine.set_sops_for_test(vec![sop]);
 
         let action = engine.start_run("s1", manual_event()).unwrap();
+        let run_id = extract_run_id(&action).to_string();
         assert!(matches!(action, SopRunAction::WaitApproval { .. }));
 
         // Manually backdate waiting_since to simulate timeout
-        let run = engine.active_runs.get_mut("run-000001").unwrap();
+        let run = engine.active_runs.get_mut(&run_id).unwrap();
         run.waiting_since = Some("2020-01-01T00:00:00Z".into());
 
         let actions = engine.check_approval_timeouts();
@@ -1347,10 +1387,11 @@ mod tests {
             SopPriority::Normal,
         )]);
 
-        engine.start_run("s1", manual_event()).unwrap();
+        let action = engine.start_run("s1", manual_event()).unwrap();
+        let run_id = extract_run_id(&action).to_string();
 
         // Backdate waiting_since
-        let run = engine.active_runs.get_mut("run-000001").unwrap();
+        let run = engine.active_runs.get_mut(&run_id).unwrap();
         run.waiting_since = Some("2020-01-01T00:00:00Z".into());
 
         // Normal priority → no auto-approve
@@ -1358,7 +1399,7 @@ mod tests {
         assert!(actions.is_empty());
         // Run should still be WaitingApproval
         assert_eq!(
-            engine.get_run("run-000001").unwrap().status,
+            engine.get_run(&run_id).unwrap().status,
             SopRunStatus::WaitingApproval
         );
     }
@@ -1374,9 +1415,10 @@ mod tests {
             SopExecutionMode::Supervised,
             SopPriority::Critical,
         )]);
-        engine.start_run("s1", manual_event()).unwrap();
+        let action = engine.start_run("s1", manual_event()).unwrap();
+        let run_id = extract_run_id(&action).to_string();
 
-        let run = engine.active_runs.get_mut("run-000001").unwrap();
+        let run = engine.active_runs.get_mut(&run_id).unwrap();
         run.waiting_since = Some("2020-01-01T00:00:00Z".into());
 
         let actions = engine.check_approval_timeouts();
@@ -1390,9 +1432,10 @@ mod tests {
             SopExecutionMode::Supervised,
             SopPriority::Normal,
         )]);
-        engine.start_run("s1", manual_event()).unwrap();
+        let action = engine.start_run("s1", manual_event()).unwrap();
+        let run_id = extract_run_id(&action).to_string();
 
-        let run = engine.get_run("run-000001").unwrap();
+        let run = engine.get_run(&run_id).unwrap();
         assert_eq!(run.status, SopRunStatus::WaitingApproval);
         assert!(run.waiting_since.is_some());
     }
@@ -1404,10 +1447,11 @@ mod tests {
             SopExecutionMode::Supervised,
             SopPriority::Normal,
         )]);
-        engine.start_run("s1", manual_event()).unwrap();
-        engine.approve_step("run-000001").unwrap();
+        let action = engine.start_run("s1", manual_event()).unwrap();
+        let run_id = extract_run_id(&action).to_string();
+        engine.approve_step(&run_id).unwrap();
 
-        let run = engine.get_run("run-000001").unwrap();
+        let run = engine.get_run(&run_id).unwrap();
         assert_eq!(run.status, SopRunStatus::Running);
         assert!(run.waiting_since.is_none());
     }

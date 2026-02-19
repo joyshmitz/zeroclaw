@@ -183,33 +183,7 @@ impl Tool for SopAdvanceTool {
     }
 }
 
-fn now_iso8601() -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = now.as_secs();
-    let days = secs / 86400;
-    let time_secs = secs % 86400;
-    let hours = time_secs / 3600;
-    let minutes = (time_secs % 3600) / 60;
-    let seconds = time_secs % 60;
-    let (year, month, day) = days_to_ymd(days);
-    format!("{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}Z")
-}
-
-fn days_to_ymd(mut days: u64) -> (u64, u64, u64) {
-    days += 719_468;
-    let era = days / 146_097;
-    let doe = days - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-    (y, m, d)
-}
+use crate::sop::engine::now_iso8601;
 
 #[cfg(test)]
 mod tests {
@@ -249,7 +223,7 @@ mod tests {
         }
     }
 
-    fn engine_with_active_run() -> Arc<Mutex<SopEngine>> {
+    fn engine_with_active_run() -> (Arc<Mutex<SopEngine>>, String) {
         let mut engine = SopEngine::new(SopConfig::default());
         engine.set_sops_for_test(vec![test_sop()]);
         let event = SopEvent {
@@ -259,16 +233,22 @@ mod tests {
             timestamp: "2026-02-19T12:00:00Z".into(),
         };
         engine.start_run("test-sop", event).unwrap();
-        Arc::new(Mutex::new(engine))
+        let run_id = engine
+            .active_runs()
+            .keys()
+            .next()
+            .expect("expected active run")
+            .clone();
+        (Arc::new(Mutex::new(engine)), run_id)
     }
 
     #[tokio::test]
     async fn advance_to_next_step() {
-        let engine = engine_with_active_run();
+        let (engine, run_id) = engine_with_active_run();
         let tool = SopAdvanceTool::new(engine);
         let result = tool
             .execute(json!({
-                "run_id": "run-000001",
+                "run_id": run_id,
                 "status": "completed",
                 "output": "Step 1 done successfully"
             }))
@@ -281,12 +261,12 @@ mod tests {
 
     #[tokio::test]
     async fn advance_to_completion() {
-        let engine = engine_with_active_run();
+        let (engine, run_id) = engine_with_active_run();
         let tool = SopAdvanceTool::new(engine.clone());
 
         // Complete step 1
         tool.execute(json!({
-            "run_id": "run-000001",
+            "run_id": run_id,
             "status": "completed",
             "output": "Step 1 done"
         }))
@@ -296,7 +276,7 @@ mod tests {
         // Complete step 2
         let result = tool
             .execute(json!({
-                "run_id": "run-000001",
+                "run_id": run_id,
                 "status": "completed",
                 "output": "Step 2 done"
             }))
@@ -308,11 +288,11 @@ mod tests {
 
     #[tokio::test]
     async fn advance_with_failure() {
-        let engine = engine_with_active_run();
+        let (engine, run_id) = engine_with_active_run();
         let tool = SopAdvanceTool::new(engine);
         let result = tool
             .execute(json!({
-                "run_id": "run-000001",
+                "run_id": run_id,
                 "status": "failed",
                 "output": "Valve stuck open"
             }))
@@ -325,11 +305,11 @@ mod tests {
 
     #[tokio::test]
     async fn advance_invalid_status() {
-        let engine = engine_with_active_run();
+        let (engine, run_id) = engine_with_active_run();
         let tool = SopAdvanceTool::new(engine);
         let result = tool
             .execute(json!({
-                "run_id": "run-000001",
+                "run_id": run_id,
                 "status": "invalid",
                 "output": "whatever"
             }))
@@ -397,7 +377,7 @@ mod tests {
 
     #[tokio::test]
     async fn advance_success_writes_step_audit() {
-        let engine = engine_with_active_run();
+        let (engine, run_id) = engine_with_active_run();
         let tmp = tempfile::tempdir().unwrap();
         let mem_cfg = crate::config::MemoryConfig {
             backend: "sqlite".into(),
@@ -410,7 +390,7 @@ mod tests {
         let tool = SopAdvanceTool::new(engine).with_audit(audit.clone());
         let result = tool
             .execute(json!({
-                "run_id": "run-000001",
+                "run_id": run_id,
                 "status": "completed",
                 "output": "Step 1 done"
             }))

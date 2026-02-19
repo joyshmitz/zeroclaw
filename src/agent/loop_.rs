@@ -3003,7 +3003,8 @@ pub async fn run(
                 }
                 if let Some(ref audit) = sop_audit {
                     for run in &audit_runs {
-                        if let Err(e) = audit.log_run_complete(run).await {
+                        if let Err(e) = audit.log_timeout_auto_approve(run, run.current_step).await
+                        {
                             tracing::warn!("SOP audit log for timeout auto-approve failed: {e}");
                         }
                     }

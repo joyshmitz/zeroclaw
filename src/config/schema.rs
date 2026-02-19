@@ -393,6 +393,11 @@ pub struct SopConfig {
     /// For others, the run stays in WaitingApproval indefinitely (0 = no timeout).
     #[serde(default = "default_sop_approval_timeout_secs")]
     pub approval_timeout_secs: u64,
+
+    /// Maximum number of finished runs to keep in memory for status queries.
+    /// Oldest runs are evicted when the limit is exceeded (0 = unlimited).
+    #[serde(default = "default_sop_max_finished_runs")]
+    pub max_finished_runs: usize,
 }
 
 fn default_sop_max_concurrent_total() -> usize {
@@ -403,6 +408,10 @@ fn default_sop_approval_timeout_secs() -> u64 {
     300
 }
 
+fn default_sop_max_finished_runs() -> usize {
+    1000
+}
+
 impl Default for SopConfig {
     fn default() -> Self {
         Self {
@@ -411,6 +420,7 @@ impl Default for SopConfig {
             default_execution_mode: crate::sop::SopExecutionMode::default(),
             max_concurrent_total: default_sop_max_concurrent_total(),
             approval_timeout_secs: default_sop_approval_timeout_secs(),
+            max_finished_runs: default_sop_max_finished_runs(),
         }
     }
 }

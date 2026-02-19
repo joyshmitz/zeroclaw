@@ -104,7 +104,7 @@ impl Tool for SopStatusTool {
             .collect();
 
         if active.is_empty() {
-            let scope = sop_name.map_or("".into(), |n| format!(" for '{n}'"));
+            let scope = sop_name.map_or(String::new(), |n| format!(" for '{n}'"));
             let _ = writeln!(output, "No active runs{scope}.");
         } else {
             let _ = writeln!(output, "Active runs ({}):", active.len());
@@ -196,28 +196,30 @@ mod tests {
     #[tokio::test]
     async fn status_with_active_run() {
         let engine = engine_with_sops(vec![test_sop("s1")]);
-        {
+        let run_id = {
             let mut e = engine.lock().unwrap();
             e.start_run("s1", manual_event()).unwrap();
-        }
+            e.active_runs().keys().next().unwrap().clone()
+        };
         let tool = SopStatusTool::new(engine);
         let result = tool.execute(json!({})).await.unwrap();
         assert!(result.success);
         assert!(result.output.contains("Active runs (1)"));
-        assert!(result.output.contains("run-000001"));
+        assert!(result.output.contains(&run_id));
     }
 
     #[tokio::test]
     async fn status_specific_run() {
         let engine = engine_with_sops(vec![test_sop("s1")]);
-        {
+        let run_id = {
             let mut e = engine.lock().unwrap();
             e.start_run("s1", manual_event()).unwrap();
-        }
+            e.active_runs().keys().next().unwrap().clone()
+        };
         let tool = SopStatusTool::new(engine);
-        let result = tool.execute(json!({"run_id": "run-000001"})).await.unwrap();
+        let result = tool.execute(json!({"run_id": run_id})).await.unwrap();
         assert!(result.success);
-        assert!(result.output.contains("Run: run-000001"));
+        assert!(result.output.contains(&format!("Run: {run_id}")));
         assert!(result.output.contains("Status: running"));
     }
 

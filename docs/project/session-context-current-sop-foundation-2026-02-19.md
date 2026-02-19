@@ -7,7 +7,7 @@ Use this context file to start the next session without ambiguity.
 repo_path: `/data/projects/zeroclaw`  
 branch: `feat/sop-foundation`  
 base_branch: `main`  
-head_commit: `c2f7cd0`
+head_commit: `f8b7322`
 
 objective:
 - Complete `P0` gate for SOP runtime before Phase 5/6 fan-in.

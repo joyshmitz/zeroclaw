@@ -669,4 +669,47 @@ mod tests {
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(!names.contains(&"delegate"));
     }
+
+    #[test]
+    fn all_tools_includes_sop_when_enabled() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy::default());
+        let mem_cfg = MemoryConfig {
+            backend: "markdown".into(),
+            ..MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> =
+            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+
+        let browser = BrowserConfig::default();
+        let http = crate::config::HttpRequestConfig::default();
+
+        let mut cfg = test_config(&tmp);
+        cfg.sop.enabled = true;
+
+        let sop_engine = Arc::new(Mutex::new(SopEngine::new(
+            crate::config::SopConfig::default(),
+        )));
+
+        let tools = all_tools(
+            Arc::new(Config::default()),
+            &security,
+            mem,
+            None,
+            None,
+            &browser,
+            &http,
+            tmp.path(),
+            &HashMap::new(),
+            None,
+            &cfg,
+            Some(sop_engine),
+        );
+        let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
+        assert!(names.contains(&"sop_list"), "missing sop_list tool");
+        assert!(names.contains(&"sop_execute"), "missing sop_execute tool");
+        assert!(names.contains(&"sop_status"), "missing sop_status tool");
+        assert!(names.contains(&"sop_approve"), "missing sop_approve tool");
+        assert!(names.contains(&"sop_advance"), "missing sop_advance tool");
+    }
 }

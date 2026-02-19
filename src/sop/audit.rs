@@ -54,6 +54,30 @@ impl SopAuditLogger {
         Ok(())
     }
 
+    /// Log an operator approval event for a specific step.
+    pub async fn log_approval(&self, run: &SopRun, step_number: u32) -> Result<()> {
+        let key = format!("sop_approval_{}_{step_number}", run.run_id);
+        let content = serde_json::to_string_pretty(run)?;
+        self.memory.store(&key, &content, category(), None).await?;
+        info!(
+            "SOP audit: run {} step {step_number} approved by operator",
+            run.run_id
+        );
+        Ok(())
+    }
+
+    /// Log a timeout-based auto-approval event for a specific step.
+    pub async fn log_timeout_auto_approve(&self, run: &SopRun, step_number: u32) -> Result<()> {
+        let key = format!("sop_timeout_approve_{}_{step_number}", run.run_id);
+        let content = serde_json::to_string_pretty(run)?;
+        self.memory.store(&key, &content, category(), None).await?;
+        info!(
+            "SOP audit: run {} step {step_number} auto-approved after timeout",
+            run.run_id
+        );
+        Ok(())
+    }
+
     /// Retrieve a stored run by ID (if it exists in memory).
     pub async fn get_run(&self, run_id: &str) -> Result<Option<SopRun>> {
         let key = run_key(run_id);

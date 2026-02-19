@@ -23,13 +23,13 @@ Critical technical assessment of whether a SOP layer is justified for an industr
 
 ## Evidence From Current `feat/sop-foundation` Implementation
 
-- SOP trigger `condition` fields are modeled, but runtime trigger matching does not yet evaluate them.
-  - `src/sop/types.rs`
-  - `src/sop/engine.rs`
-- `SopAuditLogger` is implemented but not yet wired into runtime SOP execution path.
+- SOP trigger `condition` fields are fully implemented and evaluated deterministically in runtime trigger matching via `evaluate_condition()`.
+  - `src/sop/engine.rs` (`trigger_matches` function)
+  - `src/sop/condition.rs` (evaluation logic)
+- `SopAuditLogger` is implemented and wired into all SOP tool execution paths (execute, advance, approve).
   - `src/sop/audit.rs`
-- Approval-timeout logic exists (`check_approval_timeouts`) but is not currently scheduled in daemon/agent runtime loops.
-  - `src/sop/engine.rs`
+- Approval-timeout logic (`check_approval_timeouts`) is scheduled in the agent interactive runtime loop.
+  - `src/agent/loop_.rs`
 
 ## Brutal Conclusion
 
