@@ -2,19 +2,29 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use serde_json::json;
+use tracing::warn;
 
 use super::traits::{Tool, ToolResult};
 use crate::sop::types::{SopRunAction, SopStepResult, SopStepStatus};
-use crate::sop::SopEngine;
+use crate::sop::{SopAuditLogger, SopEngine};
 
 /// Report a step result and advance an SOP run to the next step.
 pub struct SopAdvanceTool {
     engine: Arc<Mutex<SopEngine>>,
+    audit: Option<Arc<SopAuditLogger>>,
 }
 
 impl SopAdvanceTool {
     pub fn new(engine: Arc<Mutex<SopEngine>>) -> Self {
-        Self { engine }
+        Self {
+            engine,
+            audit: None,
+        }
+    }
+
+    pub fn with_audit(mut self, audit: Arc<SopAuditLogger>) -> Self {
+        self.audit = Some(audit);
+        self
     }
 }
 
@@ -81,27 +91,57 @@ impl Tool for SopAdvanceTool {
             }
         };
 
-        let mut engine = self
-            .engine
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Engine lock poisoned: {e}"))?;
+        // Lock engine, advance step, snapshot data for audit, then drop lock
+        let (action, step_result_clone, finished_run) = {
+            let mut engine = self
+                .engine
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Engine lock poisoned: {e}"))?;
 
-        // Get current step number from the run
-        let current_step = engine
-            .get_run(run_id)
-            .map(|r| r.current_step)
-            .ok_or_else(|| anyhow::anyhow!("Run not found: {run_id}"))?;
+            let current_step = engine
+                .get_run(run_id)
+                .map(|r| r.current_step)
+                .ok_or_else(|| anyhow::anyhow!("Run not found: {run_id}"))?;
 
-        let now = now_iso8601();
-        let step_result = SopStepResult {
-            step_number: current_step,
-            status: step_status,
-            output: output.to_string(),
-            started_at: now.clone(),
-            completed_at: Some(now),
+            let now = now_iso8601();
+            let step_result = SopStepResult {
+                step_number: current_step,
+                status: step_status,
+                output: output.to_string(),
+                started_at: now.clone(),
+                completed_at: Some(now),
+            };
+            let step_result_clone = step_result.clone();
+
+            match engine.advance_step(run_id, step_result) {
+                Ok(action) => {
+                    // Snapshot finished run for audit (Completed/Failed/Cancelled)
+                    let finished = match &action {
+                        SopRunAction::Completed { run_id, .. }
+                        | SopRunAction::Failed { run_id, .. } => engine.get_run(run_id).cloned(),
+                        _ => None,
+                    };
+                    (Ok(action), Some(step_result_clone), finished)
+                }
+                Err(e) => (Err(e), Some(step_result_clone), None),
+            }
         };
 
-        match engine.advance_step(run_id, step_result) {
+        // Audit logging (engine lock dropped, safe to await)
+        if let Some(ref audit) = self.audit {
+            if let Some(ref sr) = step_result_clone {
+                if let Err(e) = audit.log_step_result(run_id, sr).await {
+                    warn!("SOP audit log_step_result failed: {e}");
+                }
+            }
+            if let Some(ref run) = finished_run {
+                if let Err(e) = audit.log_run_complete(run).await {
+                    warn!("SOP audit log_run_complete failed: {e}");
+                }
+            }
+        }
+
+        match action {
             Ok(action) => {
                 let result_output = match action {
                     SopRunAction::ExecuteStep {

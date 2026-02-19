@@ -2,19 +2,29 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use serde_json::json;
+use tracing::warn;
 
 use super::traits::{Tool, ToolResult};
 use crate::sop::types::{SopEvent, SopRunAction, SopTriggerSource};
-use crate::sop::SopEngine;
+use crate::sop::{SopAuditLogger, SopEngine};
 
 /// Manually trigger an SOP by name. Returns the run ID and first step instruction.
 pub struct SopExecuteTool {
     engine: Arc<Mutex<SopEngine>>,
+    audit: Option<Arc<SopAuditLogger>>,
 }
 
 impl SopExecuteTool {
     pub fn new(engine: Arc<Mutex<SopEngine>>) -> Self {
-        Self { engine }
+        Self {
+            engine,
+            audit: None,
+        }
+    }
+
+    pub fn with_audit(mut self, audit: Arc<SopAuditLogger>) -> Self {
+        self.audit = Some(audit);
+        self
     }
 }
 
@@ -63,12 +73,33 @@ impl Tool for SopExecuteTool {
             timestamp: now_iso8601(),
         };
 
-        let mut engine = self
-            .engine
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Engine lock poisoned: {e}"))?;
+        // Lock engine, start run, snapshot run for audit, then drop lock
+        let (action, run_snapshot) = {
+            let mut engine = self
+                .engine
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Engine lock poisoned: {e}"))?;
 
-        match engine.start_run(sop_name, event) {
+            match engine.start_run(sop_name, event) {
+                Ok(action) => {
+                    let run_id = action_run_id(&action);
+                    let snapshot = run_id.and_then(|id| engine.get_run(id).cloned());
+                    (Ok(action), snapshot)
+                }
+                Err(e) => (Err(e), None),
+            }
+        };
+
+        // Audit log (engine lock dropped, safe to await)
+        if let Some(ref audit) = self.audit {
+            if let Some(ref run) = run_snapshot {
+                if let Err(e) = audit.log_run_start(run).await {
+                    warn!("SOP audit log_run_start failed: {e}");
+                }
+            }
+        }
+
+        match action {
             Ok(action) => {
                 let output = match action {
                     SopRunAction::ExecuteStep {
@@ -100,6 +131,16 @@ impl Tool for SopExecuteTool {
                 error: Some(format!("Failed to start SOP: {e}")),
             }),
         }
+    }
+}
+
+/// Extract run_id from any SopRunAction variant.
+fn action_run_id(action: &SopRunAction) -> Option<&str> {
+    match action {
+        SopRunAction::ExecuteStep { run_id, .. }
+        | SopRunAction::WaitApproval { run_id, .. }
+        | SopRunAction::Completed { run_id, .. }
+        | SopRunAction::Failed { run_id, .. } => Some(run_id),
     }
 }
 

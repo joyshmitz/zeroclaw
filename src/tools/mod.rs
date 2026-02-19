@@ -342,11 +342,14 @@ pub fn all_tools_with_runtime(
         if let Ok(mut e) = engine.lock() {
             e.reload(workspace_dir);
         }
+        let audit = Arc::new(crate::sop::SopAuditLogger::new(memory.clone()));
         tool_arcs.push(Arc::new(SopListTool::new(engine.clone())));
-        tool_arcs.push(Arc::new(SopExecuteTool::new(engine.clone())));
+        tool_arcs.push(Arc::new(
+            SopExecuteTool::new(engine.clone()).with_audit(audit.clone()),
+        ));
         tool_arcs.push(Arc::new(SopStatusTool::new(engine.clone())));
         tool_arcs.push(Arc::new(SopApproveTool::new(engine.clone())));
-        tool_arcs.push(Arc::new(SopAdvanceTool::new(engine)));
+        tool_arcs.push(Arc::new(SopAdvanceTool::new(engine).with_audit(audit)));
     }
 
     boxed_registry_from_arcs(tool_arcs)
