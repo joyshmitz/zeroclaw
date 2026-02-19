@@ -48,6 +48,8 @@ pub mod schedule;
 pub mod schema;
 pub mod screenshot;
 pub mod shell;
+pub mod sop_advance;
+pub mod sop_approve;
 pub mod sop_execute;
 pub mod sop_list;
 pub mod sop_status;
@@ -87,6 +89,8 @@ pub use schedule::ScheduleTool;
 pub use schema::{CleaningStrategy, SchemaCleanr};
 pub use screenshot::ScreenshotTool;
 pub use shell::ShellTool;
+pub use sop_advance::SopAdvanceTool;
+pub use sop_approve::SopApproveTool;
 pub use sop_execute::SopExecuteTool;
 pub use sop_list::SopListTool;
 pub use sop_status::SopStatusTool;
@@ -340,7 +344,9 @@ pub fn all_tools_with_runtime(
         }
         tool_arcs.push(Arc::new(SopListTool::new(engine.clone())));
         tool_arcs.push(Arc::new(SopExecuteTool::new(engine.clone())));
-        tool_arcs.push(Arc::new(SopStatusTool::new(engine)));
+        tool_arcs.push(Arc::new(SopStatusTool::new(engine.clone())));
+        tool_arcs.push(Arc::new(SopApproveTool::new(engine.clone())));
+        tool_arcs.push(Arc::new(SopAdvanceTool::new(engine)));
     }
 
     boxed_registry_from_arcs(tool_arcs)

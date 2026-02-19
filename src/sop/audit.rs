@@ -114,6 +114,7 @@ mod tests {
             started_at: "2026-02-19T12:00:00Z".into(),
             completed_at: None,
             step_results: Vec::new(),
+            waiting_since: None,
         }
     }
 

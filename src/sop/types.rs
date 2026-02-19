@@ -272,6 +272,9 @@ pub struct SopRun {
     pub started_at: String,
     pub completed_at: Option<String>,
     pub step_results: Vec<SopStepResult>,
+    /// ISO-8601 timestamp when the run entered WaitingApproval (for timeout tracking).
+    #[serde(default)]
+    pub waiting_since: Option<String>,
 }
 
 /// What the engine instructs the caller to do next after a state transition.
@@ -454,6 +457,7 @@ path = "/sop/test"
                 started_at: "2026-02-19T12:00:00Z".into(),
                 completed_at: Some("2026-02-19T12:00:05Z".into()),
             }],
+            waiting_since: None,
         };
         let json = serde_json::to_string(&run).unwrap();
         let parsed: SopRun = serde_json::from_str(&json).unwrap();

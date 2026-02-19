@@ -387,10 +387,20 @@ pub struct SopConfig {
     /// Maximum total concurrent SOP executions across all SOPs.
     #[serde(default = "default_sop_max_concurrent_total")]
     pub max_concurrent_total: usize,
+
+    /// Seconds to wait for operator approval before timeout action.
+    /// For Critical-priority SOPs, timeout falls back to Auto execution.
+    /// For others, the run stays in WaitingApproval indefinitely (0 = no timeout).
+    #[serde(default = "default_sop_approval_timeout_secs")]
+    pub approval_timeout_secs: u64,
 }
 
 fn default_sop_max_concurrent_total() -> usize {
     5
+}
+
+fn default_sop_approval_timeout_secs() -> u64 {
+    300
 }
 
 impl Default for SopConfig {
@@ -400,6 +410,7 @@ impl Default for SopConfig {
             sops_dir: None,
             default_execution_mode: crate::sop::SopExecutionMode::default(),
             max_concurrent_total: default_sop_max_concurrent_total(),
+            approval_timeout_secs: default_sop_approval_timeout_secs(),
         }
     }
 }

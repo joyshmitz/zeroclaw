@@ -144,6 +144,7 @@ impl SopEngine {
             started_at: now,
             completed_at: None,
             step_results: Vec::new(),
+            waiting_since: None,
         };
 
         self.active_runs.insert(run_id.clone(), run);
@@ -155,10 +156,11 @@ impl SopEngine {
         let context = format_step_context(&sop, &self.active_runs[&run_id], &step);
         let action = resolve_step_action(&sop, &step, run_id.clone(), context);
 
-        // If the action is WaitApproval, update run status
+        // If the action is WaitApproval, update run status and record timestamp
         if matches!(action, SopRunAction::WaitApproval { .. }) {
             if let Some(run) = self.active_runs.get_mut(&run_id) {
                 run.status = SopRunStatus::WaitingApproval;
+                run.waiting_since = Some(now_iso8601());
             }
         }
 
@@ -208,10 +210,11 @@ impl SopEngine {
         let run_id_str = run_id.to_string();
         let action = resolve_step_action(&sop, &step, run_id_str.clone(), context);
 
-        // If the action is WaitApproval, update run status
+        // If the action is WaitApproval, update run status and record timestamp
         if matches!(action, SopRunAction::WaitApproval { .. }) {
             if let Some(run) = self.active_runs.get_mut(&run_id_str) {
                 run.status = SopRunStatus::WaitingApproval;
+                run.waiting_since = Some(now_iso8601());
             }
         }
 
@@ -243,6 +246,7 @@ impl SopEngine {
         }
 
         run.status = SopRunStatus::Running;
+        run.waiting_since = None;
 
         let sop = self
             .sops
@@ -268,6 +272,59 @@ impl SopEngine {
             .iter()
             .filter(|r| sop_name.map_or(true, |name| r.sop_name == name))
             .collect()
+    }
+
+    // ── Approval timeout ──────────────────────────────────────────
+
+    /// Check all WaitingApproval runs for timeout. For Critical/High-priority SOPs,
+    /// auto-approve and return the resulting actions. Non-critical SOPs stay
+    /// in WaitingApproval indefinitely (or until explicitly approved/cancelled).
+    pub fn check_approval_timeouts(&mut self) -> Vec<SopRunAction> {
+        let timeout_secs = self.config.approval_timeout_secs;
+        if timeout_secs == 0 {
+            return Vec::new();
+        }
+
+        // Collect timed-out runs with their priority classification
+        // cooldown_elapsed(ts, secs) returns true when (now - ts) >= secs
+        let timed_out: Vec<(String, bool)> = self
+            .active_runs
+            .values()
+            .filter(|r| r.status == SopRunStatus::WaitingApproval)
+            .filter(|r| {
+                r.waiting_since
+                    .as_deref()
+                    .map_or(false, |ts| cooldown_elapsed(ts, timeout_secs))
+            })
+            .map(|r| {
+                let is_critical = self
+                    .sops
+                    .iter()
+                    .find(|s| s.name == r.sop_name)
+                    .map_or(false, |s| {
+                        matches!(s.priority, SopPriority::Critical | SopPriority::High)
+                    });
+                (r.run_id.clone(), is_critical)
+            })
+            .collect();
+
+        let mut actions = Vec::new();
+        for (run_id, is_critical) in timed_out {
+            if is_critical {
+                // Auto-approve: Critical/High priority SOPs fall back to Auto on timeout
+                info!(
+                    "SOP run {run_id}: approval timeout — auto-approving (critical/high priority)"
+                );
+                match self.approve_step(&run_id) {
+                    Ok(action) => actions.push(action),
+                    Err(e) => warn!("SOP run {run_id}: auto-approve failed: {e}"),
+                }
+            } else {
+                info!("SOP run {run_id}: approval timeout — waiting indefinitely (non-critical)");
+            }
+        }
+
+        actions
     }
 
     // ── Test helpers ──────────────────────────────────────────────
@@ -1032,6 +1089,7 @@ mod tests {
             started_at: now_iso8601(),
             completed_at: None,
             step_results: Vec::new(),
+            waiting_since: None,
         };
         let ctx = format_step_context(&sop, &run, &sop.steps[0]);
         assert!(ctx.contains("pump-shutdown"));
@@ -1115,5 +1173,107 @@ mod tests {
         let secs = parse_iso8601_secs("2026-01-01T00:00:00Z").unwrap();
         // Jan 1 2026 = 20454 days since epoch * 86400
         assert_eq!(secs, 20454 * 86400);
+    }
+
+    // ── Approval timeout ─────────────────────────────────
+
+    #[test]
+    fn timeout_auto_approves_critical() {
+        let mut engine = SopEngine::new(SopConfig {
+            approval_timeout_secs: 1, // 1 second for test
+            ..SopConfig::default()
+        });
+        let mut sop = test_sop("s1", SopExecutionMode::Supervised, SopPriority::Critical);
+        // PriorityBased would auto-execute critical, so use Supervised to force WaitApproval
+        sop.execution_mode = SopExecutionMode::Supervised;
+        engine.set_sops_for_test(vec![sop]);
+
+        let action = engine.start_run("s1", manual_event()).unwrap();
+        assert!(matches!(action, SopRunAction::WaitApproval { .. }));
+
+        // Manually backdate waiting_since to simulate timeout
+        let run = engine.active_runs.get_mut("run-000001").unwrap();
+        run.waiting_since = Some("2020-01-01T00:00:00Z".into());
+
+        let actions = engine.check_approval_timeouts();
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(actions[0], SopRunAction::ExecuteStep { .. }));
+    }
+
+    #[test]
+    fn timeout_does_not_auto_approve_normal() {
+        let mut engine = SopEngine::new(SopConfig {
+            approval_timeout_secs: 1,
+            ..SopConfig::default()
+        });
+        engine.set_sops_for_test(vec![test_sop(
+            "s1",
+            SopExecutionMode::Supervised,
+            SopPriority::Normal,
+        )]);
+
+        engine.start_run("s1", manual_event()).unwrap();
+
+        // Backdate waiting_since
+        let run = engine.active_runs.get_mut("run-000001").unwrap();
+        run.waiting_since = Some("2020-01-01T00:00:00Z".into());
+
+        // Normal priority → no auto-approve
+        let actions = engine.check_approval_timeouts();
+        assert!(actions.is_empty());
+        // Run should still be WaitingApproval
+        assert_eq!(
+            engine.get_run("run-000001").unwrap().status,
+            SopRunStatus::WaitingApproval
+        );
+    }
+
+    #[test]
+    fn timeout_zero_disables_check() {
+        let mut engine = SopEngine::new(SopConfig {
+            approval_timeout_secs: 0,
+            ..SopConfig::default()
+        });
+        engine.set_sops_for_test(vec![test_sop(
+            "s1",
+            SopExecutionMode::Supervised,
+            SopPriority::Critical,
+        )]);
+        engine.start_run("s1", manual_event()).unwrap();
+
+        let run = engine.active_runs.get_mut("run-000001").unwrap();
+        run.waiting_since = Some("2020-01-01T00:00:00Z".into());
+
+        let actions = engine.check_approval_timeouts();
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn waiting_since_set_on_wait_approval() {
+        let mut engine = engine_with_sops(vec![test_sop(
+            "s1",
+            SopExecutionMode::Supervised,
+            SopPriority::Normal,
+        )]);
+        engine.start_run("s1", manual_event()).unwrap();
+
+        let run = engine.get_run("run-000001").unwrap();
+        assert_eq!(run.status, SopRunStatus::WaitingApproval);
+        assert!(run.waiting_since.is_some());
+    }
+
+    #[test]
+    fn waiting_since_cleared_on_approve() {
+        let mut engine = engine_with_sops(vec![test_sop(
+            "s1",
+            SopExecutionMode::Supervised,
+            SopPriority::Normal,
+        )]);
+        engine.start_run("s1", manual_event()).unwrap();
+        engine.approve_step("run-000001").unwrap();
+
+        let run = engine.get_run("run-000001").unwrap();
+        assert_eq!(run.status, SopRunStatus::Running);
+        assert!(run.waiting_since.is_none());
     }
 }
