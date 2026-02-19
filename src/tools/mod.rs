@@ -104,8 +104,27 @@ use crate::memory::Memory;
 use crate::runtime::{NativeRuntime, RuntimeAdapter};
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
+use crate::sop::SopEngine;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+
+/// Create the shared SOP engine if SOP is enabled. Returns `None` if disabled.
+///
+/// Call this before `all_tools_with_runtime` when you need a reference to the engine
+/// for runtime polling (e.g. approval timeout checks in the agent loop).
+pub fn create_sop_engine(
+    config: &crate::config::SopConfig,
+    workspace_dir: &std::path::Path,
+) -> Option<Arc<Mutex<SopEngine>>> {
+    if !config.enabled {
+        return None;
+    }
+    let engine = Arc::new(Mutex::new(SopEngine::new(config.clone())));
+    if let Ok(mut e) = engine.lock() {
+        e.reload(workspace_dir);
+    }
+    Some(engine)
+}
 
 #[derive(Clone)]
 struct ArcDelegatingTool {
@@ -175,6 +194,7 @@ pub fn all_tools(
     agents: &HashMap<String, DelegateAgentConfig>,
     fallback_api_key: Option<&str>,
     root_config: &crate::config::Config,
+    sop_engine: Option<Arc<Mutex<SopEngine>>>,
 ) -> Vec<Box<dyn Tool>> {
     all_tools_with_runtime(
         config,
@@ -189,10 +209,15 @@ pub fn all_tools(
         agents,
         fallback_api_key,
         root_config,
+        sop_engine,
     )
 }
 
 /// Create full tool registry including memory tools and optional Composio.
+///
+/// Pass a pre-created `sop_engine` to share the same engine between the tool
+/// registry and runtime polling (e.g. approval timeout checks). If `None` and
+/// SOP is enabled, an engine is created internally.
 #[allow(clippy::implicit_hasher, clippy::too_many_arguments)]
 pub fn all_tools_with_runtime(
     config: Arc<Config>,
@@ -207,6 +232,7 @@ pub fn all_tools_with_runtime(
     agents: &HashMap<String, DelegateAgentConfig>,
     fallback_api_key: Option<&str>,
     root_config: &crate::config::Config,
+    sop_engine: Option<Arc<Mutex<SopEngine>>>,
 ) -> Vec<Box<dyn Tool>> {
     let mut tool_arcs: Vec<Arc<dyn Tool>> = vec![
         Arc::new(ShellTool::new(security.clone(), runtime)),
@@ -335,13 +361,11 @@ pub fn all_tools_with_runtime(
 
     // SOP tools (when enabled)
     if root_config.sop.enabled {
-        let engine = Arc::new(std::sync::Mutex::new(crate::sop::SopEngine::new(
-            root_config.sop.clone(),
-        )));
-        // Pre-load SOPs from workspace
-        if let Ok(mut e) = engine.lock() {
-            e.reload(workspace_dir);
-        }
+        // Use pre-created engine if provided, otherwise create one
+        let engine = sop_engine.unwrap_or_else(|| {
+            create_sop_engine(&root_config.sop, workspace_dir)
+                .expect("SOP is enabled but engine creation failed")
+        });
         let audit = Arc::new(crate::sop::SopAuditLogger::new(memory.clone()));
         tool_arcs.push(Arc::new(SopListTool::new(engine.clone())));
         tool_arcs.push(Arc::new(
@@ -408,6 +432,7 @@ mod tests {
             &HashMap::new(),
             None,
             &cfg,
+            None,
         );
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(!names.contains(&"browser_open"));
@@ -449,6 +474,7 @@ mod tests {
             &HashMap::new(),
             None,
             &cfg,
+            None,
         );
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(names.contains(&"browser_open"));
@@ -598,6 +624,7 @@ mod tests {
             &agents,
             Some("delegate-test-credential"),
             &cfg,
+            None,
         );
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(names.contains(&"delegate"));
@@ -630,6 +657,7 @@ mod tests {
             &HashMap::new(),
             None,
             &cfg,
+            None,
         );
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(!names.contains(&"delegate"));

@@ -2668,6 +2668,9 @@ pub async fn run(
     } else {
         (None, None)
     };
+    // Pre-create SOP engine so the agent loop can poll approval timeouts
+    let sop_engine = tools::create_sop_engine(&config.sop, &config.workspace_dir);
+
     let mut tools_registry = tools::all_tools_with_runtime(
         Arc::new(config.clone()),
         &security,
@@ -2681,6 +2684,7 @@ pub async fn run(
         &config.agents,
         config.api_key.as_deref(),
         &config,
+        sop_engine.clone(),
     );
 
     let peripheral_tools: Vec<Box<dyn Tool>> =
@@ -2961,6 +2965,27 @@ pub async fn run(
                 }
             }
 
+            // Check SOP approval timeouts between turns
+            if let Some(ref engine) = sop_engine {
+                if let Ok(mut e) = engine.lock() {
+                    let actions = e.check_approval_timeouts();
+                    for action in actions {
+                        let msg = match &action {
+                            crate::sop::SopRunAction::ExecuteStep {
+                                run_id, context, ..
+                            } => {
+                                format!(
+                                    "[SOP timeout auto-approved] Run {run_id} ready to execute:\n\n{context}"
+                                )
+                            }
+                            _ => continue,
+                        };
+                        tracing::info!("SOP approval timeout fired: injecting into agent context");
+                        history.push(ChatMessage::system(&msg));
+                    }
+                }
+            }
+
             let user_input = input.trim().to_string();
             if user_input.is_empty() {
                 continue;
@@ -3145,6 +3170,7 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         &config.agents,
         config.api_key.as_deref(),
         &config,
+        None, // one-shot — no SOP timeout polling needed
     );
     let peripheral_tools: Vec<Box<dyn Tool>> =
         crate::peripherals::create_peripheral_tools(&config.peripherals).await?;
