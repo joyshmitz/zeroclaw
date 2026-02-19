@@ -5,6 +5,7 @@ use std::path::Path;
 use anyhow::{bail, Result};
 use tracing::{info, warn};
 
+use super::condition::evaluate_condition;
 use super::load_sops;
 use super::types::{
     Sop, SopEvent, SopPriority, SopRun, SopRunAction, SopRunStatus, SopStep, SopStepResult,
@@ -376,21 +377,45 @@ impl SopEngine {
 /// Check whether a single trigger definition matches an incoming event.
 fn trigger_matches(trigger: &SopTrigger, event: &SopEvent) -> bool {
     match (trigger, event.source) {
-        (SopTrigger::Mqtt { topic, .. }, SopTriggerSource::Mqtt) => event
-            .topic
-            .as_deref()
-            .map_or(false, |t| mqtt_topic_matches(topic, t)),
+        (SopTrigger::Mqtt { topic, condition }, SopTriggerSource::Mqtt) => {
+            let topic_match = event
+                .topic
+                .as_deref()
+                .map_or(false, |t| mqtt_topic_matches(topic, t));
+            if !topic_match {
+                return false;
+            }
+            // Evaluate condition against payload (None condition = unconditional)
+            match condition {
+                Some(cond) => evaluate_condition(cond, event.payload.as_deref()),
+                None => true,
+            }
+        }
 
         (SopTrigger::Webhook { path }, SopTriggerSource::Webhook) => {
             event.topic.as_deref().map_or(false, |t| t == path)
         }
 
-        (SopTrigger::Peripheral { board, signal, .. }, SopTriggerSource::Peripheral) => {
-            // Match board/signal against event topic formatted as "board/signal"
-            event.topic.as_deref().map_or(false, |t| {
+        (
+            SopTrigger::Peripheral {
+                board,
+                signal,
+                condition,
+            },
+            SopTriggerSource::Peripheral,
+        ) => {
+            let topic_match = event.topic.as_deref().map_or(false, |t| {
                 let expected = format!("{board}/{signal}");
                 t == expected
-            })
+            });
+            if !topic_match {
+                return false;
+            }
+            // Evaluate condition against payload (None condition = unconditional)
+            match condition {
+                Some(cond) => evaluate_condition(cond, event.payload.as_deref()),
+                None => true,
+            }
         }
 
         // Manual always matches; cron matching is done by the scheduler,
@@ -760,6 +785,116 @@ mod tests {
         assert!(mqtt_topic_matches("#", "a/b/c"));
         assert!(mqtt_topic_matches("a/#", "a/b/c"));
         assert!(!mqtt_topic_matches("b/#", "a/b/c"));
+    }
+
+    // ── Condition-based trigger matching ────────────────
+
+    #[test]
+    fn mqtt_condition_filters_by_payload() {
+        let sop = Sop {
+            triggers: vec![SopTrigger::Mqtt {
+                topic: "sensors/pressure".into(),
+                condition: Some("$.value > 85".into()),
+            }],
+            ..test_sop("cond-sop", SopExecutionMode::Auto, SopPriority::Critical)
+        };
+        let engine = engine_with_sops(vec![sop]);
+
+        // Payload meets condition
+        let matches = engine.match_trigger(&mqtt_event("sensors/pressure", r#"{"value": 90}"#));
+        assert_eq!(matches.len(), 1);
+
+        // Payload does not meet condition
+        let matches = engine.match_trigger(&mqtt_event("sensors/pressure", r#"{"value": 50}"#));
+        assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn mqtt_no_condition_matches_any_payload() {
+        let sop = Sop {
+            triggers: vec![SopTrigger::Mqtt {
+                topic: "sensors/temp".into(),
+                condition: None,
+            }],
+            ..test_sop("no-cond", SopExecutionMode::Auto, SopPriority::Normal)
+        };
+        let engine = engine_with_sops(vec![sop]);
+
+        let matches = engine.match_trigger(&mqtt_event("sensors/temp", "anything"));
+        assert_eq!(matches.len(), 1);
+    }
+
+    #[test]
+    fn mqtt_condition_no_payload_fails_closed() {
+        let sop = Sop {
+            triggers: vec![SopTrigger::Mqtt {
+                topic: "sensors/temp".into(),
+                condition: Some("$.value > 0".into()),
+            }],
+            ..test_sop("no-payload", SopExecutionMode::Auto, SopPriority::Normal)
+        };
+        let engine = engine_with_sops(vec![sop]);
+
+        // Event with no payload
+        let event = SopEvent {
+            source: SopTriggerSource::Mqtt,
+            topic: Some("sensors/temp".into()),
+            payload: None,
+            timestamp: now_iso8601(),
+        };
+        assert!(engine.match_trigger(&event).is_empty());
+    }
+
+    #[test]
+    fn peripheral_condition_filters_by_payload() {
+        let sop = Sop {
+            triggers: vec![SopTrigger::Peripheral {
+                board: "nucleo".into(),
+                signal: "pin_3".into(),
+                condition: Some("> 0".into()),
+            }],
+            ..test_sop("periph-cond", SopExecutionMode::Auto, SopPriority::High)
+        };
+        let engine = engine_with_sops(vec![sop]);
+
+        // Positive signal
+        let event = SopEvent {
+            source: SopTriggerSource::Peripheral,
+            topic: Some("nucleo/pin_3".into()),
+            payload: Some("1".into()),
+            timestamp: now_iso8601(),
+        };
+        assert_eq!(engine.match_trigger(&event).len(), 1);
+
+        // Zero signal — does not meet condition
+        let event = SopEvent {
+            source: SopTriggerSource::Peripheral,
+            topic: Some("nucleo/pin_3".into()),
+            payload: Some("0".into()),
+            timestamp: now_iso8601(),
+        };
+        assert!(engine.match_trigger(&event).is_empty());
+    }
+
+    #[test]
+    fn peripheral_no_condition_matches_any() {
+        let sop = Sop {
+            triggers: vec![SopTrigger::Peripheral {
+                board: "rpi".into(),
+                signal: "gpio_5".into(),
+                condition: None,
+            }],
+            ..test_sop("periph-nocond", SopExecutionMode::Auto, SopPriority::Normal)
+        };
+        let engine = engine_with_sops(vec![sop]);
+
+        let event = SopEvent {
+            source: SopTriggerSource::Peripheral,
+            topic: Some("rpi/gpio_5".into()),
+            payload: Some("0".into()),
+            timestamp: now_iso8601(),
+        };
+        assert_eq!(engine.match_trigger(&event).len(), 1);
     }
 
     // ── Run lifecycle ───────────────────────────────────
