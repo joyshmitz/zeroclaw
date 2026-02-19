@@ -19,6 +19,7 @@ Localized hubs: [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · 
 | Use LangGraph integration patterns | [langgraph-integration.md](langgraph-integration.md) |
 | Operate runtime (day-2 runbook) | [operations-runbook.md](operations-runbook.md) |
 | Troubleshoot install/runtime/channel issues | [troubleshooting.md](troubleshooting.md) |
+| Start a new coding session with required context | [project/session-context-template.md](project/session-context-template.md) |
 | Run Matrix encrypted-room setup and diagnostics | [matrix-e2ee-guide.md](matrix-e2ee-guide.md) |
 | Browse docs by category | [SUMMARY.md](SUMMARY.md) |
 | See project snapshots and SOP foundation plan | [project/README.md](project/README.md) |
