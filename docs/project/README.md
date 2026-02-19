@@ -5,6 +5,9 @@ Time-bound project status snapshots for planning documentation and operations wo
 ## Current Snapshot
 
 - [../project-triage-snapshot-2026-02-18.md](../project-triage-snapshot-2026-02-18.md)
+- [sop-foundation-plan-2026-02-19.md](sop-foundation-plan-2026-02-19.md)
+- [session-context-template.md](session-context-template.md)
+- [session-context-current-sop-foundation-2026-02-19.md](session-context-current-sop-foundation-2026-02-19.md)
 
 ## Scope
 

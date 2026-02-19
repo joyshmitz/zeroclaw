@@ -83,4 +83,7 @@ Last refreshed: **February 18, 2026**.
 
 - [project/README.md](project/README.md)
 - [project-triage-snapshot-2026-02-18.md](project-triage-snapshot-2026-02-18.md)
+- [project/sop-foundation-plan-2026-02-19.md](project/sop-foundation-plan-2026-02-19.md)
+- [project/session-context-template.md](project/session-context-template.md)
+- [project/session-context-current-sop-foundation-2026-02-19.md](project/session-context-current-sop-foundation-2026-02-19.md)
 - [docs-inventory.md](docs-inventory.md)
