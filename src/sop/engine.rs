@@ -132,11 +132,11 @@ impl SopEngine {
         }
 
         self.run_counter += 1;
-        let epoch_secs = std::time::SystemTime::now()
+        let epoch_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
-            .as_secs();
-        let run_id = format!("run-{epoch_secs}-{:04}", self.run_counter);
+            .as_millis() as u64;
+        let run_id = format!("run-{epoch_ms}-{:04}", self.run_counter);
         let now = now_iso8601();
 
         let run = SopRun {
@@ -1438,6 +1438,83 @@ mod tests {
         let run = engine.get_run(&run_id).unwrap();
         assert_eq!(run.status, SopRunStatus::WaitingApproval);
         assert!(run.waiting_since.is_some());
+    }
+
+    // ── Eviction ──────────────────────────────────────
+
+    #[test]
+    fn max_finished_runs_evicts_oldest() {
+        let mut engine = SopEngine::new(SopConfig {
+            max_finished_runs: 2,
+            ..SopConfig::default()
+        });
+        // SOP with 1 step so each run completes in one advance
+        let mut sop = test_sop("s1", SopExecutionMode::Auto, SopPriority::Normal);
+        sop.steps = vec![sop.steps[0].clone()];
+        sop.max_concurrent = 10;
+        engine.sops = vec![sop];
+
+        // Complete 3 runs
+        let mut finished_ids = Vec::new();
+        for _ in 0..3 {
+            let action = engine.start_run("s1", manual_event()).unwrap();
+            let rid = extract_run_id(&action).to_string();
+            engine
+                .advance_step(
+                    &rid,
+                    SopStepResult {
+                        step_number: 1,
+                        status: SopStepStatus::Completed,
+                        output: "ok".into(),
+                        started_at: now_iso8601(),
+                        completed_at: Some(now_iso8601()),
+                    },
+                )
+                .unwrap();
+            finished_ids.push(rid);
+        }
+
+        // Only 2 should be kept (max_finished_runs=2)
+        let finished = engine.finished_runs(None);
+        assert_eq!(
+            finished.len(),
+            2,
+            "eviction should cap at max_finished_runs"
+        );
+        // Oldest (first) run should be evicted, newest two remain
+        assert_eq!(finished[0].run_id, finished_ids[1]);
+        assert_eq!(finished[1].run_id, finished_ids[2]);
+    }
+
+    #[test]
+    fn max_finished_runs_zero_means_unlimited() {
+        let mut engine = SopEngine::new(SopConfig {
+            max_finished_runs: 0,
+            ..SopConfig::default()
+        });
+        let mut sop = test_sop("s1", SopExecutionMode::Auto, SopPriority::Normal);
+        sop.steps = vec![sop.steps[0].clone()];
+        sop.max_concurrent = 10;
+        engine.sops = vec![sop];
+
+        for _ in 0..5 {
+            let action = engine.start_run("s1", manual_event()).unwrap();
+            let rid = extract_run_id(&action).to_string();
+            engine
+                .advance_step(
+                    &rid,
+                    SopStepResult {
+                        step_number: 1,
+                        status: SopStepStatus::Completed,
+                        output: "ok".into(),
+                        started_at: now_iso8601(),
+                        completed_at: Some(now_iso8601()),
+                    },
+                )
+                .unwrap();
+        }
+
+        assert_eq!(engine.finished_runs(None).len(), 5, "zero means unlimited");
     }
 
     #[test]

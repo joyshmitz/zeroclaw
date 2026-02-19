@@ -191,6 +191,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn log_approval_persists_entry() {
+        let mem_cfg = crate::config::MemoryConfig {
+            backend: "sqlite".into(),
+            ..crate::config::MemoryConfig::default()
+        };
+        let tmp = tempfile::tempdir().unwrap();
+        let memory: Arc<dyn Memory> =
+            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+
+        let logger = SopAuditLogger::new(memory.clone());
+        let run = test_run();
+        logger.log_approval(&run, 1).await.unwrap();
+
+        let entries = memory.list(Some(&category()), None).await.unwrap();
+        let approval_keys: Vec<_> = entries
+            .iter()
+            .filter(|e| e.key.starts_with("sop_approval_"))
+            .collect();
+        assert_eq!(approval_keys.len(), 1);
+        assert!(approval_keys[0].key.contains("run-test-001"));
+    }
+
+    #[tokio::test]
+    async fn log_timeout_auto_approve_persists_entry() {
+        let mem_cfg = crate::config::MemoryConfig {
+            backend: "sqlite".into(),
+            ..crate::config::MemoryConfig::default()
+        };
+        let tmp = tempfile::tempdir().unwrap();
+        let memory: Arc<dyn Memory> =
+            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+
+        let logger = SopAuditLogger::new(memory.clone());
+        let run = test_run();
+        logger.log_timeout_auto_approve(&run, 1).await.unwrap();
+
+        let entries = memory.list(Some(&category()), None).await.unwrap();
+        let timeout_keys: Vec<_> = entries
+            .iter()
+            .filter(|e| e.key.starts_with("sop_timeout_approve_"))
+            .collect();
+        assert_eq!(timeout_keys.len(), 1);
+        assert!(timeout_keys[0].key.contains("run-test-001"));
+    }
+
+    #[tokio::test]
     async fn get_nonexistent_run_returns_none() {
         let mem_cfg = crate::config::MemoryConfig {
             backend: "sqlite".into(),

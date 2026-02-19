@@ -54,7 +54,8 @@ Before Phase 5/6 routing, close the current runtime gaps:
 - Files: `src/sop/audit.rs`, `src/tools/sop_execute.rs`, `src/tools/sop_approve.rs`, `src/tools/sop_advance.rs`, `src/tools/mod.rs`
 
 3. Runtime scheduling for approval timeouts.
-- Files: `src/agent/loop_.rs`, `src/channels/mod.rs`, `src/tools/traits.rs`, `src/sop/engine.rs`
+- Files: `src/agent/loop_.rs`, `src/sop/engine.rs`
+- Note: `src/channels/mod.rs` and `src/tools/traits.rs` were evaluated during P0 review and required no changes — channels pass `None` for sop_engine (correct for Phase 4), and tool traits already support the SOP tool interface.
 
 Reason:
 - Without P0, Phase 5/6 event fan-in can create non-deterministic or untracked SOP transitions.
