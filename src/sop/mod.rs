@@ -5,6 +5,7 @@ pub mod types;
 
 pub use audit::SopAuditLogger;
 pub use engine::SopEngine;
+#[allow(unused_imports)]
 pub use types::{
     Sop, SopEvent, SopExecutionMode, SopPriority, SopRun, SopRunAction, SopRunStatus, SopStep,
     SopStepResult, SopStepStatus, SopTrigger, SopTriggerSource,

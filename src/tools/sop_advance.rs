@@ -92,7 +92,7 @@ impl Tool for SopAdvanceTool {
         };
 
         // Lock engine, advance step, snapshot data for audit, then drop lock
-        let (action, step_result_clone, finished_run) = {
+        let (action, step_result_ok, finished_run) = {
             let mut engine = self
                 .engine
                 .lock()
@@ -121,15 +121,16 @@ impl Tool for SopAdvanceTool {
                         | SopRunAction::Failed { run_id, .. } => engine.get_run(run_id).cloned(),
                         _ => None,
                     };
+                    // Only audit step result when advance succeeded
                     (Ok(action), Some(step_result_clone), finished)
                 }
-                Err(e) => (Err(e), Some(step_result_clone), None),
+                Err(e) => (Err(e), None, None),
             }
         };
 
         // Audit logging (engine lock dropped, safe to await)
         if let Some(ref audit) = self.audit {
-            if let Some(ref sr) = step_result_clone {
+            if let Some(ref sr) = step_result_ok {
                 if let Err(e) = audit.log_step_result(run_id, sr).await {
                     warn!("SOP audit log_step_result failed: {e}");
                 }
@@ -214,6 +215,7 @@ fn days_to_ymd(mut days: u64) -> (u64, u64, u64) {
 mod tests {
     use super::*;
     use crate::config::SopConfig;
+    use crate::memory::Memory;
     use crate::sop::engine::SopEngine;
     use crate::sop::types::*;
 
@@ -359,5 +361,78 @@ mod tests {
         let schema = tool.parameters_schema();
         assert!(schema["properties"]["run_id"].is_object());
         assert!(schema["properties"]["status"]["enum"].is_array());
+    }
+
+    #[tokio::test]
+    async fn advance_error_does_not_write_step_audit() {
+        // Use a run_id that doesn't exist — advance_step will fail
+        let engine = Arc::new(Mutex::new(SopEngine::new(SopConfig::default())));
+        let tmp = tempfile::tempdir().unwrap();
+        let mem_cfg = crate::config::MemoryConfig {
+            backend: "sqlite".into(),
+            ..crate::config::MemoryConfig::default()
+        };
+        let memory: Arc<dyn Memory> =
+            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+        let audit = Arc::new(SopAuditLogger::new(memory.clone()));
+
+        let tool = SopAdvanceTool::new(engine).with_audit(audit.clone());
+        let result = tool
+            .execute(json!({
+                "run_id": "nonexistent",
+                "status": "completed",
+                "output": "done"
+            }))
+            .await;
+        // advance_step on nonexistent run returns Err (anyhow)
+        assert!(result.is_err());
+
+        // Verify no phantom audit entries were written
+        let runs = audit.list_runs().await.unwrap();
+        assert!(
+            runs.is_empty(),
+            "no audit entries should exist after advance error"
+        );
+    }
+
+    #[tokio::test]
+    async fn advance_success_writes_step_audit() {
+        let engine = engine_with_active_run();
+        let tmp = tempfile::tempdir().unwrap();
+        let mem_cfg = crate::config::MemoryConfig {
+            backend: "sqlite".into(),
+            ..crate::config::MemoryConfig::default()
+        };
+        let memory: Arc<dyn Memory> =
+            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+        let audit = Arc::new(SopAuditLogger::new(memory.clone()));
+
+        let tool = SopAdvanceTool::new(engine).with_audit(audit.clone());
+        let result = tool
+            .execute(json!({
+                "run_id": "run-000001",
+                "status": "completed",
+                "output": "Step 1 done"
+            }))
+            .await
+            .unwrap();
+        assert!(result.success);
+
+        // Verify step audit was written
+        let entries = memory
+            .list(
+                Some(&crate::memory::traits::MemoryCategory::Custom("sop".into())),
+                None,
+            )
+            .await
+            .unwrap();
+        let step_keys: Vec<_> = entries
+            .iter()
+            .filter(|e| e.key.starts_with("sop_step_"))
+            .collect();
+        assert!(
+            !step_keys.is_empty(),
+            "step audit should be written on success"
+        );
     }
 }

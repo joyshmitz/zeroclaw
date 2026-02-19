@@ -218,6 +218,11 @@ pub fn all_tools(
 /// Pass a pre-created `sop_engine` to share the same engine between the tool
 /// registry and runtime polling (e.g. approval timeout checks). If `None` and
 /// SOP is enabled, an engine is created internally.
+///
+/// **Timeout auto-approve policy**: Approval timeout polling runs only in the
+/// interactive agent loop (`run()` in `loop_.rs`). Channel, gateway, and
+/// one-shot `process_message()` paths pass `None` — SOP runs started there
+/// rely on explicit `sop_approve` tool calls or the next interactive session.
 #[allow(clippy::implicit_hasher, clippy::too_many_arguments)]
 pub fn all_tools_with_runtime(
     config: Arc<Config>,
@@ -372,7 +377,9 @@ pub fn all_tools_with_runtime(
             SopExecuteTool::new(engine.clone()).with_audit(audit.clone()),
         ));
         tool_arcs.push(Arc::new(SopStatusTool::new(engine.clone())));
-        tool_arcs.push(Arc::new(SopApproveTool::new(engine.clone())));
+        tool_arcs.push(Arc::new(
+            SopApproveTool::new(engine.clone()).with_audit(audit.clone()),
+        ));
         tool_arcs.push(Arc::new(SopAdvanceTool::new(engine).with_audit(audit)));
     }
 

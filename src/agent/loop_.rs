@@ -2670,6 +2670,9 @@ pub async fn run(
     };
     // Pre-create SOP engine so the agent loop can poll approval timeouts
     let sop_engine = tools::create_sop_engine(&config.sop, &config.workspace_dir);
+    let sop_audit = sop_engine
+        .as_ref()
+        .map(|_| Arc::new(crate::sop::SopAuditLogger::new(mem.clone())));
 
     let mut tools_registry = tools::all_tools_with_runtime(
         Arc::new(config.clone()),
@@ -2967,21 +2970,42 @@ pub async fn run(
 
             // Check SOP approval timeouts between turns
             if let Some(ref engine) = sop_engine {
-                if let Ok(mut e) = engine.lock() {
-                    let actions = e.check_approval_timeouts();
-                    for action in actions {
-                        let msg = match &action {
-                            crate::sop::SopRunAction::ExecuteStep {
-                                run_id, context, ..
-                            } => {
-                                format!(
-                                    "[SOP timeout auto-approved] Run {run_id} ready to execute:\n\n{context}"
-                                )
+                // Lock scope: extract actions + snapshots, then drop
+                let (actions, audit_runs) = match engine.lock() {
+                    Ok(mut e) => {
+                        let actions = e.check_approval_timeouts();
+                        let mut runs = Vec::new();
+                        for action in &actions {
+                            if let crate::sop::SopRunAction::ExecuteStep { run_id, .. } = action {
+                                if let Some(run) = e.get_run(run_id).cloned() {
+                                    runs.push(run);
+                                }
                             }
-                            _ => continue,
-                        };
-                        tracing::info!("SOP approval timeout fired: injecting into agent context");
-                        history.push(ChatMessage::system(&msg));
+                        }
+                        (actions, runs)
+                    }
+                    Err(_) => (Vec::new(), Vec::new()),
+                };
+                // Engine lock dropped — safe to push history and await audit
+                for action in &actions {
+                    let msg = match action {
+                        crate::sop::SopRunAction::ExecuteStep {
+                            run_id, context, ..
+                        } => {
+                            format!(
+                                "[SOP timeout auto-approved] Run {run_id} ready to execute:\n\n{context}"
+                            )
+                        }
+                        _ => continue,
+                    };
+                    tracing::info!("SOP approval timeout fired: injecting into agent context");
+                    history.push(ChatMessage::system(&msg));
+                }
+                if let Some(ref audit) = sop_audit {
+                    for run in &audit_runs {
+                        if let Err(e) = audit.log_run_complete(run).await {
+                            tracing::warn!("SOP audit log for timeout auto-approve failed: {e}");
+                        }
                     }
                 }
             }

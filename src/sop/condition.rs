@@ -95,10 +95,7 @@ fn parse_path_op_value(input: &str) -> Option<(Vec<&str>, Op, String)> {
             }
 
             let op = Op::from_str(op_str)?;
-            let segments: Vec<&str> = path_part
-                .split('.')
-                .filter(|s| !s.is_empty())
-                .collect();
+            let segments: Vec<&str> = path_part.split('.').filter(|s| !s.is_empty()).collect();
 
             if segments.is_empty() {
                 return None;
@@ -292,10 +289,7 @@ mod tests {
     #[test]
     fn json_path_neq() {
         let payload = r#"{"status": "ok"}"#;
-        assert!(evaluate_condition(
-            r#"$.status != "error""#,
-            Some(payload)
-        ));
+        assert!(evaluate_condition(r#"$.status != "error""#, Some(payload)));
         assert!(!evaluate_condition(r#"$.status != "ok""#, Some(payload)));
     }
 
@@ -339,10 +333,7 @@ mod tests {
     #[test]
     fn json_path_bool_value() {
         let payload = r#"{"active": true}"#;
-        assert!(evaluate_condition(
-            r#"$.active == "true""#,
-            Some(payload)
-        ));
+        assert!(evaluate_condition(r#"$.active == "true""#, Some(payload)));
     }
 
     // ── Direct conditions (peripheral) ──────────────────

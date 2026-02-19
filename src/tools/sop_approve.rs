@@ -2,19 +2,29 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use serde_json::json;
+use tracing::warn;
 
 use super::traits::{Tool, ToolResult};
 use crate::sop::types::SopRunAction;
-use crate::sop::SopEngine;
+use crate::sop::{SopAuditLogger, SopEngine};
 
 /// Approve a pending SOP step that is waiting for operator approval.
 pub struct SopApproveTool {
     engine: Arc<Mutex<SopEngine>>,
+    audit: Option<Arc<SopAuditLogger>>,
 }
 
 impl SopApproveTool {
     pub fn new(engine: Arc<Mutex<SopEngine>>) -> Self {
-        Self { engine }
+        Self {
+            engine,
+            audit: None,
+        }
+    }
+
+    pub fn with_audit(mut self, audit: Arc<SopAuditLogger>) -> Self {
+        self.audit = Some(audit);
+        self
     }
 }
 
@@ -47,12 +57,32 @@ impl Tool for SopApproveTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'run_id' parameter"))?;
 
-        let mut engine = self
-            .engine
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Engine lock poisoned: {e}"))?;
+        // Lock engine, approve, snapshot run for audit, then drop lock
+        let (result, run_snapshot) = {
+            let mut engine = self
+                .engine
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Engine lock poisoned: {e}"))?;
 
-        match engine.approve_step(run_id) {
+            match engine.approve_step(run_id) {
+                Ok(action) => {
+                    let snapshot = engine.get_run(run_id).cloned();
+                    (Ok(action), snapshot)
+                }
+                Err(e) => (Err(e), None),
+            }
+        };
+
+        // Audit logging (engine lock dropped, safe to await)
+        if let Some(ref audit) = self.audit {
+            if let Some(ref run) = run_snapshot {
+                if let Err(e) = audit.log_run_complete(run).await {
+                    warn!("SOP audit log after approve failed: {e}");
+                }
+            }
+        }
+
+        match result {
             Ok(action) => {
                 let output = match action {
                     SopRunAction::ExecuteStep {
@@ -81,6 +111,7 @@ impl Tool for SopApproveTool {
 mod tests {
     use super::*;
     use crate::config::SopConfig;
+    use crate::memory::Memory;
     use crate::sop::engine::SopEngine;
     use crate::sop::types::*;
 
@@ -155,5 +186,50 @@ mod tests {
         let tool = SopApproveTool::new(engine);
         assert_eq!(tool.name(), "sop_approve");
         assert!(tool.parameters_schema()["required"].is_array());
+    }
+
+    #[tokio::test]
+    async fn approve_writes_audit() {
+        let engine = engine_with_run();
+        let tmp = tempfile::tempdir().unwrap();
+        let mem_cfg = crate::config::MemoryConfig {
+            backend: "sqlite".into(),
+            ..crate::config::MemoryConfig::default()
+        };
+        let memory: Arc<dyn Memory> =
+            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+        let audit = Arc::new(SopAuditLogger::new(memory.clone()));
+
+        let tool = SopApproveTool::new(engine).with_audit(audit.clone());
+        let result = tool.execute(json!({"run_id": "run-000001"})).await.unwrap();
+        assert!(result.success);
+
+        // Verify audit entry was written for the approved run
+        let stored = audit.get_run("run-000001").await.unwrap();
+        assert!(stored.is_some(), "audit should persist run after approve");
+    }
+
+    #[tokio::test]
+    async fn approve_failure_does_not_write_audit() {
+        let engine = Arc::new(Mutex::new(SopEngine::new(SopConfig::default())));
+        let tmp = tempfile::tempdir().unwrap();
+        let mem_cfg = crate::config::MemoryConfig {
+            backend: "sqlite".into(),
+            ..crate::config::MemoryConfig::default()
+        };
+        let memory: Arc<dyn Memory> =
+            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+        let audit = Arc::new(SopAuditLogger::new(memory.clone()));
+
+        let tool = SopApproveTool::new(engine).with_audit(audit.clone());
+        let result = tool
+            .execute(json!({"run_id": "nonexistent"}))
+            .await
+            .unwrap();
+        assert!(!result.success);
+
+        // No audit entry for failed approval
+        let stored = audit.get_run("nonexistent").await.unwrap();
+        assert!(stored.is_none(), "failed approve should not write audit");
     }
 }
