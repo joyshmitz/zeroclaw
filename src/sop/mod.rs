@@ -1,6 +1,13 @@
+pub mod audit;
+pub mod engine;
 pub mod types;
 
-pub use types::{Sop, SopExecutionMode, SopPriority, SopRunStatus, SopStep, SopTrigger};
+pub use audit::SopAuditLogger;
+pub use engine::SopEngine;
+pub use types::{
+    Sop, SopEvent, SopExecutionMode, SopPriority, SopRun, SopRunAction, SopRunStatus, SopStep,
+    SopStepResult, SopStepStatus, SopTrigger, SopTriggerSource,
+};
 
 use anyhow::Result;
 use std::path::{Path, PathBuf};
