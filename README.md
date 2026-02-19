@@ -961,6 +961,7 @@ See [aieos.org](https://aieos.org) for the full schema and live examples.
 | `channel` | List/start/doctor channels and bind Telegram identities |
 | `integrations` | Inspect integration setup details |
 | `skills` | List/install/remove skills |
+| `sop` | Manage Standard Operating Procedures (`list/validate/show`) |
 | `migrate` | Import data from other runtimes (`migrate openclaw`) |
 | `completions` | Generate shell completion scripts (`bash`, `fish`, `zsh`, `powershell`, `elvish`) |
 | `hardware` | USB discover/introspect/info commands |
