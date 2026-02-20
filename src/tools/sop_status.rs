@@ -5,16 +5,25 @@ use async_trait::async_trait;
 use serde_json::json;
 
 use super::traits::{Tool, ToolResult};
-use crate::sop::SopEngine;
+use crate::sop::{SopEngine, SopMetricsCollector};
 
 /// Query SOP execution status — active runs, finished runs, or a specific run by ID.
 pub struct SopStatusTool {
     engine: Arc<Mutex<SopEngine>>,
+    collector: Option<Arc<SopMetricsCollector>>,
 }
 
 impl SopStatusTool {
     pub fn new(engine: Arc<Mutex<SopEngine>>) -> Self {
-        Self { engine }
+        Self {
+            engine,
+            collector: None,
+        }
+    }
+
+    pub fn with_collector(mut self, collector: Arc<SopMetricsCollector>) -> Self {
+        self.collector = Some(collector);
+        self
     }
 }
 
@@ -39,6 +48,10 @@ impl Tool for SopStatusTool {
                 "sop_name": {
                     "type": "string",
                     "description": "SOP name to list runs for"
+                },
+                "include_metrics": {
+                    "type": "boolean",
+                    "description": "Include aggregated SOP metrics (completion rate, deviation rate, intervention counts, windowed variants)"
                 }
             }
         })
@@ -47,6 +60,10 @@ impl Tool for SopStatusTool {
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
         let run_id = args.get("run_id").and_then(|v| v.as_str());
         let sop_name = args.get("sop_name").and_then(|v| v.as_str());
+        let include_metrics = args
+            .get("include_metrics")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         let engine = self
             .engine
@@ -133,11 +150,67 @@ impl Tool for SopStatusTool {
             }
         }
 
+        // Metrics summary (when requested and collector is available)
+        if include_metrics {
+            if let Some(ref collector) = self.collector {
+                let prefix = sop_name.map_or("sop".to_string(), |n| format!("sop.{n}"));
+                let _ = writeln!(output, "\nMetrics ({prefix}):");
+                for suffix in METRIC_SUFFIXES {
+                    let key = format!("{prefix}.{suffix}");
+                    if let Some(val) = collector.get_metric_value(&key) {
+                        let _ = writeln!(output, "  {suffix}: {}", format_metric_value(&val));
+                    }
+                }
+            } else {
+                let _ = writeln!(
+                    output,
+                    "\nMetrics: not available (collector not configured)"
+                );
+            }
+        }
+
         Ok(ToolResult {
             success: true,
             output,
             error: None,
         })
+    }
+}
+
+/// Metric suffixes rendered in status output.
+const METRIC_SUFFIXES: &[&str] = &[
+    "runs_completed",
+    "runs_failed",
+    "runs_cancelled",
+    "completion_rate",
+    "deviation_rate",
+    "protocol_adherence_rate",
+    "human_intervention_count",
+    "human_intervention_rate",
+    "timeout_auto_approvals",
+    "timeout_approval_rate",
+    "completion_rate_7d",
+    "deviation_rate_7d",
+    "completion_rate_30d",
+    "deviation_rate_30d",
+];
+
+fn format_metric_value(val: &serde_json::Value) -> String {
+    match val {
+        serde_json::Value::Number(n) => {
+            if let Some(u) = n.as_u64() {
+                format!("{u}")
+            } else if let Some(f) = n.as_f64() {
+                if f.fract() == 0.0 {
+                    format!("{f:.0}")
+                } else {
+                    format!("{f:.4}")
+                }
+            } else {
+                n.to_string()
+            }
+        }
+        other => other.to_string(),
     }
 }
 
@@ -259,5 +332,99 @@ mod tests {
         let schema = tool.parameters_schema();
         assert!(schema["properties"]["run_id"].is_object());
         assert!(schema["properties"]["sop_name"].is_object());
+        assert!(schema["properties"]["include_metrics"].is_object());
+    }
+
+    #[tokio::test]
+    async fn status_with_metrics_global() {
+        let engine = engine_with_sops(vec![test_sop("s1")]);
+        let collector = Arc::new(SopMetricsCollector::new());
+        // Record a completed run in the collector
+        let run = SopRun {
+            run_id: "r1".into(),
+            sop_name: "s1".into(),
+            trigger_event: manual_event(),
+            status: SopRunStatus::Completed,
+            current_step: 1,
+            total_steps: 1,
+            started_at: "2026-02-19T12:00:00Z".into(),
+            completed_at: Some("2026-02-19T12:05:00Z".into()),
+            step_results: vec![SopStepResult {
+                step_number: 1,
+                status: SopStepStatus::Completed,
+                output: "done".into(),
+                started_at: "2026-02-19T12:00:00Z".into(),
+                completed_at: Some("2026-02-19T12:01:00Z".into()),
+            }],
+            waiting_since: None,
+        };
+        collector.record_run_complete(&run);
+
+        let tool = SopStatusTool::new(engine).with_collector(collector);
+        let result = tool
+            .execute(json!({"include_metrics": true}))
+            .await
+            .unwrap();
+        assert!(result.success);
+        assert!(result.output.contains("Metrics (sop):"));
+        assert!(result.output.contains("runs_completed: 1"));
+        assert!(result.output.contains("completion_rate: 1"));
+    }
+
+    #[tokio::test]
+    async fn status_with_metrics_per_sop() {
+        let engine = engine_with_sops(vec![test_sop("s1")]);
+        let collector = Arc::new(SopMetricsCollector::new());
+        let run = SopRun {
+            run_id: "r1".into(),
+            sop_name: "s1".into(),
+            trigger_event: manual_event(),
+            status: SopRunStatus::Failed,
+            current_step: 1,
+            total_steps: 2,
+            started_at: "2026-02-19T12:00:00Z".into(),
+            completed_at: Some("2026-02-19T12:05:00Z".into()),
+            step_results: vec![SopStepResult {
+                step_number: 1,
+                status: SopStepStatus::Failed,
+                output: "fail".into(),
+                started_at: "2026-02-19T12:00:00Z".into(),
+                completed_at: Some("2026-02-19T12:01:00Z".into()),
+            }],
+            waiting_since: None,
+        };
+        collector.record_run_complete(&run);
+
+        let tool = SopStatusTool::new(engine).with_collector(collector);
+        let result = tool
+            .execute(json!({"sop_name": "s1", "include_metrics": true}))
+            .await
+            .unwrap();
+        assert!(result.success);
+        assert!(result.output.contains("Metrics (sop.s1):"));
+        assert!(result.output.contains("runs_failed: 1"));
+        assert!(result.output.contains("completion_rate: 0"));
+    }
+
+    #[tokio::test]
+    async fn status_metrics_without_collector() {
+        let engine = engine_with_sops(vec![]);
+        let tool = SopStatusTool::new(engine);
+        let result = tool
+            .execute(json!({"include_metrics": true}))
+            .await
+            .unwrap();
+        assert!(result.success);
+        assert!(result.output.contains("not available"));
+    }
+
+    #[tokio::test]
+    async fn status_metrics_not_shown_by_default() {
+        let engine = engine_with_sops(vec![test_sop("s1")]);
+        let collector = Arc::new(SopMetricsCollector::new());
+        let tool = SopStatusTool::new(engine).with_collector(collector);
+        let result = tool.execute(json!({})).await.unwrap();
+        assert!(result.success);
+        assert!(!result.output.contains("Metrics"));
     }
 }

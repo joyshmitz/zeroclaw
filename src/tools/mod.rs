@@ -379,7 +379,11 @@ pub fn all_tools_with_runtime(
         tool_arcs.push(Arc::new(
             SopExecuteTool::new(engine.clone()).with_audit(audit.clone()),
         ));
-        tool_arcs.push(Arc::new(SopStatusTool::new(engine.clone())));
+        let mut status = SopStatusTool::new(engine.clone());
+        if let Some(ref collector) = sop_collector {
+            status = status.with_collector(Arc::clone(collector));
+        }
+        tool_arcs.push(Arc::new(status));
         let mut approve = SopApproveTool::new(engine.clone()).with_audit(audit.clone());
         let mut advance = SopAdvanceTool::new(engine).with_audit(audit);
         if let Some(ref collector) = sop_collector {
