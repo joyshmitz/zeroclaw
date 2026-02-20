@@ -104,7 +104,7 @@ use crate::memory::Memory;
 use crate::runtime::{NativeRuntime, RuntimeAdapter};
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
-use crate::sop::SopEngine;
+use crate::sop::{SopEngine, SopMetricsCollector};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -195,6 +195,7 @@ pub fn all_tools(
     fallback_api_key: Option<&str>,
     root_config: &crate::config::Config,
     sop_engine: Option<Arc<Mutex<SopEngine>>>,
+    sop_collector: Option<Arc<SopMetricsCollector>>,
 ) -> Vec<Box<dyn Tool>> {
     all_tools_with_runtime(
         config,
@@ -210,6 +211,7 @@ pub fn all_tools(
         fallback_api_key,
         root_config,
         sop_engine,
+        sop_collector,
     )
 }
 
@@ -238,6 +240,7 @@ pub fn all_tools_with_runtime(
     fallback_api_key: Option<&str>,
     root_config: &crate::config::Config,
     sop_engine: Option<Arc<Mutex<SopEngine>>>,
+    sop_collector: Option<Arc<SopMetricsCollector>>,
 ) -> Vec<Box<dyn Tool>> {
     let mut tool_arcs: Vec<Arc<dyn Tool>> = vec![
         Arc::new(ShellTool::new(security.clone(), runtime)),
@@ -377,10 +380,14 @@ pub fn all_tools_with_runtime(
             SopExecuteTool::new(engine.clone()).with_audit(audit.clone()),
         ));
         tool_arcs.push(Arc::new(SopStatusTool::new(engine.clone())));
-        tool_arcs.push(Arc::new(
-            SopApproveTool::new(engine.clone()).with_audit(audit.clone()),
-        ));
-        tool_arcs.push(Arc::new(SopAdvanceTool::new(engine).with_audit(audit)));
+        let mut approve = SopApproveTool::new(engine.clone()).with_audit(audit.clone());
+        let mut advance = SopAdvanceTool::new(engine).with_audit(audit);
+        if let Some(ref collector) = sop_collector {
+            approve = approve.with_collector(Arc::clone(collector));
+            advance = advance.with_collector(Arc::clone(collector));
+        }
+        tool_arcs.push(Arc::new(approve));
+        tool_arcs.push(Arc::new(advance));
     }
 
     boxed_registry_from_arcs(tool_arcs)
@@ -440,6 +447,7 @@ mod tests {
             None,
             &cfg,
             None,
+            None,
         );
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(!names.contains(&"browser_open"));
@@ -481,6 +489,7 @@ mod tests {
             &HashMap::new(),
             None,
             &cfg,
+            None,
             None,
         );
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
@@ -632,6 +641,7 @@ mod tests {
             Some("delegate-test-credential"),
             &cfg,
             None,
+            None,
         );
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(names.contains(&"delegate"));
@@ -664,6 +674,7 @@ mod tests {
             &HashMap::new(),
             None,
             &cfg,
+            None,
             None,
         );
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
@@ -704,6 +715,7 @@ mod tests {
             None,
             &cfg,
             Some(sop_engine),
+            None,
         );
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(names.contains(&"sop_list"), "missing sop_list tool");

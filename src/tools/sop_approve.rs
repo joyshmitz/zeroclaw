@@ -6,12 +6,13 @@ use tracing::warn;
 
 use super::traits::{Tool, ToolResult};
 use crate::sop::types::SopRunAction;
-use crate::sop::{SopAuditLogger, SopEngine};
+use crate::sop::{SopAuditLogger, SopEngine, SopMetricsCollector};
 
 /// Approve a pending SOP step that is waiting for operator approval.
 pub struct SopApproveTool {
     engine: Arc<Mutex<SopEngine>>,
     audit: Option<Arc<SopAuditLogger>>,
+    collector: Option<Arc<SopMetricsCollector>>,
 }
 
 impl SopApproveTool {
@@ -19,11 +20,17 @@ impl SopApproveTool {
         Self {
             engine,
             audit: None,
+            collector: None,
         }
     }
 
     pub fn with_audit(mut self, audit: Arc<SopAuditLogger>) -> Self {
         self.audit = Some(audit);
+        self
+    }
+
+    pub fn with_collector(mut self, collector: Arc<SopMetricsCollector>) -> Self {
+        self.collector = Some(collector);
         self
     }
 }
@@ -79,6 +86,13 @@ impl Tool for SopApproveTool {
                 if let Err(e) = audit.log_approval(run, run.current_step).await {
                     warn!("SOP audit log after approve failed: {e}");
                 }
+            }
+        }
+
+        // Metrics collector (independent of audit)
+        if let Some(ref collector) = self.collector {
+            if let Some(ref run) = run_snapshot {
+                collector.record_approval(&run.sop_name, &run.run_id);
             }
         }
 

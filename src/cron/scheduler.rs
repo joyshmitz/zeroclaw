@@ -25,6 +25,7 @@ pub async fn run(
     sop_engine: Option<Arc<Mutex<crate::sop::SopEngine>>>,
     sop_audit: Option<Arc<crate::sop::SopAuditLogger>>,
     sop_cron_cache: Option<SopCronCache>,
+    sop_collector: Option<Arc<crate::sop::SopMetricsCollector>>,
 ) -> Result<()> {
     let poll_secs = config.reliability.scheduler_poll_secs.max(MIN_POLL_SECONDS);
     let mut interval = time::interval(Duration::from_secs(poll_secs));
@@ -114,6 +115,11 @@ pub async fn run(
                     if let Err(e) = audit.log_timeout_auto_approve(run, run.current_step).await {
                         tracing::warn!("SOP audit log for timeout auto-approve failed: {e}");
                     }
+                }
+            }
+            if let Some(ref collector) = sop_collector {
+                for run in &audit_runs {
+                    collector.record_timeout_auto_approve(&run.sop_name, &run.run_id);
                 }
             }
         }

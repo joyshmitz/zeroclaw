@@ -3036,6 +3036,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
         config.api_key.as_deref(),
         &config,
         None, // channel — SOP engine created internally if needed
+        None, // channel — no SOP metrics collector
     ));
 
     let skills = crate::skills::load_skills_with_config(&workspace, &config);

@@ -273,6 +273,7 @@ impl Agent {
             config.api_key.as_deref(),
             config,
             None, // agent struct — SOP engine created internally if needed
+            None, // agent struct — no SOP metrics collector
         );
 
         let provider_name = config.default_provider.as_deref().unwrap_or("openrouter");

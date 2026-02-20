@@ -28,15 +28,29 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
     // ── Shared SOP resources (single engine for all components) ──
     let sop_engine: Option<Arc<Mutex<crate::sop::SopEngine>>> =
         crate::tools::create_sop_engine(&config.sop, &config.workspace_dir);
-    let sop_audit: Option<Arc<crate::sop::SopAuditLogger>> = sop_engine.as_ref().and_then(|_| {
-        crate::memory::create_memory(&config.memory, &config.workspace_dir, None)
-            .ok()
-            .map(|m| {
-                Arc::new(crate::sop::SopAuditLogger::new(
-                    Arc::from(m) as Arc<dyn crate::memory::traits::Memory>
-                ))
-            })
-    });
+    let sop_memory: Option<Arc<dyn crate::memory::traits::Memory>> =
+        sop_engine.as_ref().and_then(|_| {
+            crate::memory::create_memory(&config.memory, &config.workspace_dir, None)
+                .ok()
+                .map(|m| Arc::from(m) as Arc<dyn crate::memory::traits::Memory>)
+        });
+    let sop_audit: Option<Arc<crate::sop::SopAuditLogger>> = sop_memory
+        .as_ref()
+        .map(|m| Arc::new(crate::sop::SopAuditLogger::new(Arc::clone(m))));
+    let sop_collector: Option<Arc<crate::sop::SopMetricsCollector>> =
+        if let Some(ref mem) = sop_memory {
+            match crate::sop::SopMetricsCollector::rebuild_from_memory(mem.as_ref()).await {
+                Ok(c) => Some(Arc::new(c)),
+                Err(e) => {
+                    tracing::warn!(
+                        "SOP metrics warm-start failed in daemon, using empty collector: {e}"
+                    );
+                    Some(Arc::new(crate::sop::SopMetricsCollector::new()))
+                }
+            }
+        } else {
+            None
+        };
     let sop_cron_cache: Option<SopCronCache> = sop_engine.as_ref().map(SopCronCache::from_engine);
 
     let mut handles: Vec<JoinHandle<()>> = vec![spawn_state_writer(config.clone())];
@@ -100,6 +114,7 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
         let engine_for_sched = sop_engine.clone();
         let audit_for_sched = sop_audit.clone();
         let cache_for_sched = sop_cron_cache.clone();
+        let collector_for_sched = sop_collector.clone();
         handles.push(spawn_component_supervisor(
             "scheduler",
             initial_backoff,
@@ -109,7 +124,10 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
                 let engine = engine_for_sched.clone();
                 let audit = audit_for_sched.clone();
                 let cache = cache_for_sched.clone();
-                async move { crate::cron::scheduler::run(cfg, engine, audit, cache).await }
+                let collector = collector_for_sched.clone();
+                async move {
+                    crate::cron::scheduler::run(cfg, engine, audit, cache, collector).await
+                }
             },
         ));
     } else {

@@ -6,12 +6,13 @@ use tracing::warn;
 
 use super::traits::{Tool, ToolResult};
 use crate::sop::types::{SopRunAction, SopStepResult, SopStepStatus};
-use crate::sop::{SopAuditLogger, SopEngine};
+use crate::sop::{SopAuditLogger, SopEngine, SopMetricsCollector};
 
 /// Report a step result and advance an SOP run to the next step.
 pub struct SopAdvanceTool {
     engine: Arc<Mutex<SopEngine>>,
     audit: Option<Arc<SopAuditLogger>>,
+    collector: Option<Arc<SopMetricsCollector>>,
 }
 
 impl SopAdvanceTool {
@@ -19,11 +20,17 @@ impl SopAdvanceTool {
         Self {
             engine,
             audit: None,
+            collector: None,
         }
     }
 
     pub fn with_audit(mut self, audit: Arc<SopAuditLogger>) -> Self {
         self.audit = Some(audit);
+        self
+    }
+
+    pub fn with_collector(mut self, collector: Arc<SopMetricsCollector>) -> Self {
+        self.collector = Some(collector);
         self
     }
 }
@@ -139,6 +146,13 @@ impl Tool for SopAdvanceTool {
                 if let Err(e) = audit.log_run_complete(run).await {
                     warn!("SOP audit log_run_complete failed: {e}");
                 }
+            }
+        }
+
+        // Metrics collector (independent of audit)
+        if let Some(ref collector) = self.collector {
+            if let Some(ref run) = finished_run {
+                collector.record_run_complete(run);
             }
         }
 

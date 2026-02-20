@@ -2674,6 +2674,20 @@ pub async fn run(
         .as_ref()
         .map(|_| Arc::new(crate::sop::SopAuditLogger::new(mem.clone())));
 
+    // Warm-start SOP metrics collector from Memory (async, O(n) scan — acceptable at startup)
+    let sop_collector: Option<Arc<crate::sop::SopMetricsCollector>> = if sop_engine.is_some() {
+        Some(Arc::new(
+            crate::sop::SopMetricsCollector::rebuild_from_memory(mem.as_ref())
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::warn!("SOP metrics warm-start failed, using empty collector: {e}");
+                    crate::sop::SopMetricsCollector::new()
+                }),
+        ))
+    } else {
+        None
+    };
+
     let mut tools_registry = tools::all_tools_with_runtime(
         Arc::new(config.clone()),
         &security,
@@ -2688,6 +2702,7 @@ pub async fn run(
         config.api_key.as_deref(),
         &config,
         sop_engine.clone(),
+        sop_collector.clone(),
     );
 
     let peripheral_tools: Vec<Box<dyn Tool>> =
@@ -3009,6 +3024,11 @@ pub async fn run(
                         }
                     }
                 }
+                if let Some(ref collector) = sop_collector {
+                    for run in &audit_runs {
+                        collector.record_timeout_auto_approve(&run.sop_name, &run.run_id);
+                    }
+                }
             }
 
             let user_input = input.trim().to_string();
@@ -3196,6 +3216,7 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         config.api_key.as_deref(),
         &config,
         None, // one-shot — no SOP timeout polling needed
+        None, // one-shot — no SOP metrics collector
     );
     let peripheral_tools: Vec<Box<dyn Tool>> =
         crate::peripherals::create_peripheral_tools(&config.peripherals).await?;

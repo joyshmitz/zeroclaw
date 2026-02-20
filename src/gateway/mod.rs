@@ -394,6 +394,7 @@ pub async fn run_gateway(
         config.api_key.as_deref(),
         &config,
         sop_engine.clone(),
+        None, // gateway — no SOP metrics collector
     );
     let tools_registry: Arc<Vec<ToolSpec>> =
         Arc::new(tools_registry_raw.iter().map(|t| t.spec()).collect());
