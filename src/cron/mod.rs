@@ -2,7 +2,7 @@ use crate::config::Config;
 use crate::security::SecurityPolicy;
 use anyhow::{bail, Result};
 
-mod schedule;
+pub(crate) mod schedule;
 mod store;
 mod types;
 
