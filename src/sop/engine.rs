@@ -132,10 +132,10 @@ impl SopEngine {
         }
 
         self.run_counter += 1;
-        let epoch_ms = std::time::SystemTime::now()
+        let dur = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+            .unwrap_or_default();
+        let epoch_ms = dur.as_secs() * 1000 + u64::from(dur.subsec_millis());
         let run_id = format!("run-{epoch_ms}-{:04}", self.run_counter);
         let now = now_iso8601();
 
@@ -429,10 +429,11 @@ fn trigger_matches(trigger: &SopTrigger, event: &SopEvent) -> bool {
             }
         }
 
-        // Manual always matches; cron matching is done by the scheduler,
-        // so if we receive a cron event for this SOP it matches.
-        (SopTrigger::Manual, SopTriggerSource::Manual)
-        | (SopTrigger::Cron { .. }, SopTriggerSource::Cron) => true,
+        (SopTrigger::Cron { expression }, SopTriggerSource::Cron) => {
+            event.topic.as_deref().map_or(false, |t| t == expression)
+        }
+
+        (SopTrigger::Manual, SopTriggerSource::Manual) => true,
 
         _ => false,
     }
@@ -816,6 +817,97 @@ mod tests {
         assert!(mqtt_topic_matches("#", "a/b/c"));
         assert!(mqtt_topic_matches("a/#", "a/b/c"));
         assert!(!mqtt_topic_matches("b/#", "a/b/c"));
+    }
+
+    // ── Webhook trigger matching ─────────────────────
+
+    #[test]
+    fn webhook_trigger_matches_exact_path() {
+        let sop = Sop {
+            triggers: vec![SopTrigger::Webhook {
+                path: "/webhook".into(),
+            }],
+            ..test_sop("webhook-sop", SopExecutionMode::Auto, SopPriority::Normal)
+        };
+        let engine = engine_with_sops(vec![sop]);
+
+        // Exact match — should match
+        let event = SopEvent {
+            source: SopTriggerSource::Webhook,
+            topic: Some("/webhook".into()),
+            payload: None,
+            timestamp: now_iso8601(),
+        };
+        assert_eq!(engine.match_trigger(&event).len(), 1);
+    }
+
+    #[test]
+    fn webhook_trigger_rejects_different_path() {
+        let sop = Sop {
+            triggers: vec![SopTrigger::Webhook {
+                path: "/sop/deploy".into(),
+            }],
+            ..test_sop("deploy-sop", SopExecutionMode::Auto, SopPriority::Normal)
+        };
+        let engine = engine_with_sops(vec![sop]);
+
+        // Path /webhook does NOT match /sop/deploy
+        let event = SopEvent {
+            source: SopTriggerSource::Webhook,
+            topic: Some("/webhook".into()),
+            payload: None,
+            timestamp: now_iso8601(),
+        };
+        assert!(engine.match_trigger(&event).is_empty());
+
+        // But /sop/deploy matches /sop/deploy
+        let event = SopEvent {
+            source: SopTriggerSource::Webhook,
+            topic: Some("/sop/deploy".into()),
+            payload: None,
+            timestamp: now_iso8601(),
+        };
+        assert_eq!(engine.match_trigger(&event).len(), 1);
+    }
+
+    // ── Cron trigger matching ─────────────────────────
+
+    #[test]
+    fn cron_trigger_matches_only_matching_expression() {
+        let sop = Sop {
+            triggers: vec![SopTrigger::Cron {
+                expression: "0 */5 * * *".into(),
+            }],
+            ..test_sop("cron-sop", SopExecutionMode::Auto, SopPriority::Normal)
+        };
+        let engine = engine_with_sops(vec![sop]);
+
+        // Matching expression
+        let event = SopEvent {
+            source: SopTriggerSource::Cron,
+            topic: Some("0 */5 * * *".into()),
+            payload: None,
+            timestamp: now_iso8601(),
+        };
+        assert_eq!(engine.match_trigger(&event).len(), 1);
+
+        // Different expression — should NOT match
+        let event = SopEvent {
+            source: SopTriggerSource::Cron,
+            topic: Some("0 */10 * * *".into()),
+            payload: None,
+            timestamp: now_iso8601(),
+        };
+        assert!(engine.match_trigger(&event).is_empty());
+
+        // No topic — should NOT match
+        let event = SopEvent {
+            source: SopTriggerSource::Cron,
+            topic: None,
+            payload: None,
+            timestamp: now_iso8601(),
+        };
+        assert!(engine.match_trigger(&event).is_empty());
     }
 
     // ── Condition-based trigger matching ────────────────
