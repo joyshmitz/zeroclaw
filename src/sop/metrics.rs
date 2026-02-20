@@ -17,26 +17,13 @@ const MAX_RECENT_RUNS: usize = 1000;
 /// Stale pending-approval entries older than this are evicted.
 const PENDING_EVICT_SECS: u64 = 3600;
 
-// ── RunSnapshot ────────────────────────────────────────────────
+// ── MetricCounters ────────────────────────────────────────────
 
-/// Lightweight snapshot of a terminal run for windowed metric computation.
-#[derive(Debug, Clone)]
-struct RunSnapshot {
-    completed_at: DateTime<Utc>,
-    terminal_status: SopRunStatus,
-    steps_executed: u64,
-    steps_defined: u64,
-    steps_failed: u64,
-    steps_skipped: u64,
-    had_human_approval: bool,
-    had_timeout_approval: bool,
-}
-
-// ── SopCounters ────────────────────────────────────────────────
-
-/// Accumulated counters for a single SOP (or global aggregate).
-#[derive(Debug, Default)]
-struct SopCounters {
+/// Base counters shared between all-time and windowed aggregation.
+/// Extracted to avoid field duplication across `SopCounters` and windowed
+/// accumulators (fixes S1: WindowedCounters was a 1:1 copy of 9 fields).
+#[derive(Debug, Default, Clone)]
+struct MetricCounters {
     runs_completed: u64,
     runs_failed: u64,
     runs_cancelled: u64,
@@ -46,6 +33,32 @@ struct SopCounters {
     steps_skipped: u64,
     human_approvals: u64,
     timeout_auto_approvals: u64,
+}
+
+// ── RunSnapshot ────────────────────────────────────────────────
+
+/// Lightweight snapshot of a terminal run for windowed metric computation.
+///
+/// Stores **event-level counts** (not booleans) so windowed and all-time
+/// metrics are semantically consistent: both count approval events, not runs.
+#[derive(Debug, Clone)]
+struct RunSnapshot {
+    completed_at: DateTime<Utc>,
+    terminal_status: SopRunStatus,
+    steps_executed: u64,
+    steps_defined: u64,
+    steps_failed: u64,
+    steps_skipped: u64,
+    human_approval_count: u64,
+    timeout_approval_count: u64,
+}
+
+// ── SopCounters ────────────────────────────────────────────────
+
+/// Accumulated counters for a single SOP (or global aggregate).
+#[derive(Debug, Default)]
+struct SopCounters {
+    counters: MetricCounters,
     recent_runs: VecDeque<RunSnapshot>,
 }
 
@@ -55,10 +68,10 @@ struct SopCounters {
 struct CollectorState {
     global: SopCounters,
     per_sop: HashMap<String, SopCounters>,
-    /// Pending human approvals: run_id → insertion time.
-    pending_approvals: HashMap<String, Instant>,
-    /// Pending timeout auto-approvals: run_id → insertion time.
-    pending_timeout_approvals: HashMap<String, Instant>,
+    /// Pending human approvals: run_id → (last_updated, event_count).
+    pending_approvals: HashMap<String, (Instant, u64)>,
+    /// Pending timeout auto-approvals: run_id → (last_updated, event_count).
+    pending_timeout_approvals: HashMap<String, (Instant, u64)>,
 }
 
 // ── SopMetricsCollector ────────────────────────────────────────
@@ -94,18 +107,23 @@ impl SopMetricsCollector {
         let now = Instant::now();
         state
             .pending_approvals
-            .retain(|_, ts| now.duration_since(*ts).as_secs() < PENDING_EVICT_SECS);
+            .retain(|_, (ts, _)| now.duration_since(*ts).as_secs() < PENDING_EVICT_SECS);
         state
             .pending_timeout_approvals
-            .retain(|_, ts| now.duration_since(*ts).as_secs() < PENDING_EVICT_SECS);
+            .retain(|_, (ts, _)| now.duration_since(*ts).as_secs() < PENDING_EVICT_SECS);
 
-        let had_human = state.pending_approvals.remove(&run.run_id).is_some();
-        let had_timeout = state
+        let human_count = state
+            .pending_approvals
+            .remove(&run.run_id)
+            .map(|(_, c)| c)
+            .unwrap_or(0);
+        let timeout_count = state
             .pending_timeout_approvals
             .remove(&run.run_id)
-            .is_some();
+            .map(|(_, c)| c)
+            .unwrap_or(0);
 
-        let snapshot = build_snapshot(run, had_human, had_timeout);
+        let snapshot = build_snapshot(run, human_count, timeout_count);
         apply_run(&mut state.global, &snapshot);
         let counters = state.per_sop.entry(run.sop_name.clone()).or_default();
         apply_run(counters, &snapshot);
@@ -119,15 +137,19 @@ impl SopMetricsCollector {
             warn!("SOP metrics collector lock poisoned in record_approval");
             return;
         };
-        state.global.human_approvals += 1;
+        state.global.counters.human_approvals += 1;
         state
             .per_sop
             .entry(sop_name.to_string())
             .or_default()
+            .counters
             .human_approvals += 1;
-        state
+        let entry = state
             .pending_approvals
-            .insert(run_id.to_string(), Instant::now());
+            .entry(run_id.to_string())
+            .or_insert((Instant::now(), 0));
+        entry.0 = Instant::now();
+        entry.1 += 1;
     }
 
     /// Record a timeout auto-approval event.
@@ -138,15 +160,19 @@ impl SopMetricsCollector {
             warn!("SOP metrics collector lock poisoned in record_timeout_auto_approve");
             return;
         };
-        state.global.timeout_auto_approvals += 1;
+        state.global.counters.timeout_auto_approvals += 1;
         state
             .per_sop
             .entry(sop_name.to_string())
             .or_default()
+            .counters
             .timeout_auto_approvals += 1;
-        state
+        let entry = state
             .pending_timeout_approvals
-            .insert(run_id.to_string(), Instant::now());
+            .entry(run_id.to_string())
+            .or_insert((Instant::now(), 0));
+        entry.0 = Instant::now();
+        entry.1 += 1;
     }
 
     // ── Warm-start (async) ─────────────────────────────────────
@@ -155,20 +181,25 @@ impl SopMetricsCollector {
     ///
     /// Scans all entries in `MemoryCategory::Custom("sop")`.
     /// Falls back to empty collector on failure.
+    ///
+    /// For approval entries whose run_id does **not** match a terminal run,
+    /// populates `pending_approvals` / `pending_timeout_approvals` so that
+    /// if the run completes via live push after restart, approval flags are
+    /// correctly propagated to the `RunSnapshot`.
     pub async fn rebuild_from_memory(memory: &dyn Memory) -> anyhow::Result<Self> {
         let category = MemoryCategory::Custom("sop".into());
         let entries = memory.list(Some(&category), None).await?;
 
-        // Pass 1: collect terminal runs
+        // Pass 1: collect terminal runs and count approvals per run_id
         let mut runs: HashMap<String, SopRun> = HashMap::new();
-        // Track approval/timeout approval run_ids
-        let mut approval_run_ids: Vec<String> = Vec::new();
-        let mut timeout_approval_run_ids: Vec<String> = Vec::new();
+        let mut approval_counts: HashMap<String, u64> = HashMap::new();
+        let mut timeout_counts: HashMap<String, u64> = HashMap::new();
+        // Track sop_name per run_id for approval entries (needed for pending + per-SOP counters)
+        let mut approval_sop_names: HashMap<String, String> = HashMap::new();
 
         for entry in &entries {
             if entry.key.starts_with("sop_run_") {
                 if let Ok(run) = serde_json::from_str::<SopRun>(&entry.content) {
-                    // Only keep terminal runs
                     if matches!(
                         run.status,
                         SopRunStatus::Completed | SopRunStatus::Failed | SopRunStatus::Cancelled
@@ -177,61 +208,71 @@ impl SopMetricsCollector {
                     }
                 }
             } else if entry.key.starts_with("sop_approval_") {
-                // Extract run_id from the stored content (SopRun JSON)
                 if let Ok(run) = serde_json::from_str::<SopRun>(&entry.content) {
-                    approval_run_ids.push(run.run_id);
+                    *approval_counts.entry(run.run_id.clone()).or_default() += 1;
+                    approval_sop_names
+                        .entry(run.run_id.clone())
+                        .or_insert(run.sop_name);
                 }
             } else if entry.key.starts_with("sop_timeout_approve_") {
                 if let Ok(run) = serde_json::from_str::<SopRun>(&entry.content) {
-                    timeout_approval_run_ids.push(run.run_id);
+                    *timeout_counts.entry(run.run_id.clone()).or_default() += 1;
+                    approval_sop_names
+                        .entry(run.run_id.clone())
+                        .or_insert(run.sop_name);
                 }
             }
         }
 
-        // Pass 2: match approvals to known terminal runs
-        let approval_set: std::collections::HashSet<&str> = approval_run_ids
-            .iter()
-            .filter(|id| runs.contains_key(id.as_str()))
-            .map(|s| s.as_str())
-            .collect();
-        let timeout_set: std::collections::HashSet<&str> = timeout_approval_run_ids
-            .iter()
-            .filter(|id| runs.contains_key(id.as_str()))
-            .map(|s| s.as_str())
-            .collect();
-
-        // Build state
+        // Build state from terminal runs
         let mut state = CollectorState::default();
         for (run_id, run) in &runs {
-            let had_human = approval_set.contains(run_id.as_str());
-            let had_timeout = timeout_set.contains(run_id.as_str());
-            let snapshot = build_snapshot(run, had_human, had_timeout);
+            let human_count = approval_counts.get(run_id).copied().unwrap_or(0);
+            let timeout_count = timeout_counts.get(run_id).copied().unwrap_or(0);
+            let snapshot = build_snapshot(run, human_count, timeout_count);
             apply_run(&mut state.global, &snapshot);
             let counters = state.per_sop.entry(run.sop_name.clone()).or_default();
             apply_run(counters, &snapshot);
         }
 
-        // Count all approval events (not just those matching terminal runs)
-        // for accurate all-time counters
-        for entry in &entries {
-            if entry.key.starts_with("sop_approval_") {
-                if let Ok(run) = serde_json::from_str::<SopRun>(&entry.content) {
-                    state.global.human_approvals += 1;
-                    state
-                        .per_sop
-                        .entry(run.sop_name.clone())
-                        .or_default()
-                        .human_approvals += 1;
-                }
-            } else if entry.key.starts_with("sop_timeout_approve_") {
-                if let Ok(run) = serde_json::from_str::<SopRun>(&entry.content) {
-                    state.global.timeout_auto_approvals += 1;
-                    state
-                        .per_sop
-                        .entry(run.sop_name.clone())
-                        .or_default()
-                        .timeout_auto_approvals += 1;
-                }
+        // All-time approval counters: count every approval event
+        for (run_id, count) in &approval_counts {
+            state.global.counters.human_approvals += count;
+            if let Some(sop_name) = approval_sop_names.get(run_id) {
+                state
+                    .per_sop
+                    .entry(sop_name.clone())
+                    .or_default()
+                    .counters
+                    .human_approvals += count;
+            }
+        }
+        for (run_id, count) in &timeout_counts {
+            state.global.counters.timeout_auto_approvals += count;
+            if let Some(sop_name) = approval_sop_names.get(run_id) {
+                state
+                    .per_sop
+                    .entry(sop_name.clone())
+                    .or_default()
+                    .counters
+                    .timeout_auto_approvals += count;
+            }
+        }
+
+        // Populate pending maps for non-terminal runs so that if the run
+        // completes via live push after restart, approval flags are correct.
+        for (run_id, count) in &approval_counts {
+            if !runs.contains_key(run_id) {
+                state
+                    .pending_approvals
+                    .insert(run_id.clone(), (Instant::now(), *count));
+            }
+        }
+        for (run_id, count) in &timeout_counts {
+            if !runs.contains_key(run_id) {
+                state
+                    .pending_timeout_approvals
+                    .insert(run_id.clone(), (Instant::now(), *count));
             }
         }
 
@@ -247,6 +288,11 @@ impl SopMetricsCollector {
     /// Format: `sop.<metric>` (global) or `sop.<sop_name>.<metric>` (per-SOP).
     /// Per-SOP resolution uses longest-match-first to prevent shorter SOP
     /// names from shadowing longer ones.
+    ///
+    /// **Known edge case**: If a SOP name exactly matches a metric suffix
+    /// (e.g., SOP named `"runs_completed"`), `sop.runs_completed` resolves
+    /// to the **global** metric. Per-SOP metrics for such a SOP are only
+    /// reachable via the full path `sop.runs_completed.runs_completed`.
     pub fn get_metric_value(&self, name: &str) -> Option<serde_json::Value> {
         let Ok(state) = self.inner.read() else {
             return None;
@@ -338,7 +384,7 @@ impl ampersona_core::traits::MetricsProvider for SopMetricsCollector {
 
 // ── Helpers ────────────────────────────────────────────────────
 
-fn build_snapshot(run: &SopRun, had_human: bool, had_timeout: bool) -> RunSnapshot {
+fn build_snapshot(run: &SopRun, human_count: u64, timeout_count: u64) -> RunSnapshot {
     let completed_at = run
         .completed_at
         .as_deref()
@@ -364,26 +410,27 @@ fn build_snapshot(run: &SopRun, had_human: bool, had_timeout: bool) -> RunSnapsh
         steps_defined: u64::from(run.total_steps),
         steps_failed,
         steps_skipped,
-        had_human_approval: had_human,
-        had_timeout_approval: had_timeout,
+        human_approval_count: human_count,
+        timeout_approval_count: timeout_count,
     }
 }
 
-fn apply_run(counters: &mut SopCounters, snap: &RunSnapshot) {
+fn apply_run(sop: &mut SopCounters, snap: &RunSnapshot) {
+    let c = &mut sop.counters;
     match snap.terminal_status {
-        SopRunStatus::Completed => counters.runs_completed += 1,
-        SopRunStatus::Failed => counters.runs_failed += 1,
-        SopRunStatus::Cancelled => counters.runs_cancelled += 1,
+        SopRunStatus::Completed => c.runs_completed += 1,
+        SopRunStatus::Failed => c.runs_failed += 1,
+        SopRunStatus::Cancelled => c.runs_cancelled += 1,
         _ => {}
     }
-    counters.steps_executed += snap.steps_executed;
-    counters.steps_defined += snap.steps_defined;
-    counters.steps_failed += snap.steps_failed;
-    counters.steps_skipped += snap.steps_skipped;
+    c.steps_executed += snap.steps_executed;
+    c.steps_defined += snap.steps_defined;
+    c.steps_failed += snap.steps_failed;
+    c.steps_skipped += snap.steps_skipped;
 
-    counters.recent_runs.push_back(snap.clone());
-    if counters.recent_runs.len() > MAX_RECENT_RUNS {
-        counters.recent_runs.pop_front();
+    sop.recent_runs.push_back(snap.clone());
+    if sop.recent_runs.len() > MAX_RECENT_RUNS {
+        sop.recent_runs.pop_front();
     }
 }
 
@@ -401,8 +448,8 @@ fn parse_completed_at(ts: &str) -> Option<DateTime<Utc>> {
     None
 }
 
-/// Resolve a metric suffix against a counters struct.
-fn resolve_metric(counters: &SopCounters, suffix: &str) -> Option<serde_json::Value> {
+/// Resolve a metric suffix against a `SopCounters` struct.
+fn resolve_metric(sop: &SopCounters, suffix: &str) -> Option<serde_json::Value> {
     // Check for windowed variant
     let (base, window_days) = if let Some(base) = suffix.strip_suffix("_7d") {
         (base, Some(7i64))
@@ -415,13 +462,34 @@ fn resolve_metric(counters: &SopCounters, suffix: &str) -> Option<serde_json::Va
     };
 
     if let Some(days) = window_days {
-        resolve_windowed(counters, base, days)
+        let cutoff = Utc::now() - chrono::Duration::days(days);
+        let mut wc = MetricCounters::default();
+        for snap in &sop.recent_runs {
+            if snap.completed_at >= cutoff {
+                match snap.terminal_status {
+                    SopRunStatus::Completed => wc.runs_completed += 1,
+                    SopRunStatus::Failed => wc.runs_failed += 1,
+                    SopRunStatus::Cancelled => wc.runs_cancelled += 1,
+                    _ => {}
+                }
+                wc.steps_executed += snap.steps_executed;
+                wc.steps_defined += snap.steps_defined;
+                wc.steps_failed += snap.steps_failed;
+                wc.steps_skipped += snap.steps_skipped;
+                wc.human_approvals += snap.human_approval_count;
+                wc.timeout_auto_approvals += snap.timeout_approval_count;
+            }
+        }
+        resolve_from_counters(&wc, base)
     } else {
-        resolve_alltime(counters, base)
+        resolve_from_counters(&sop.counters, base)
     }
 }
 
-fn resolve_alltime(c: &SopCounters, metric: &str) -> Option<serde_json::Value> {
+/// Core metric resolution against a `MetricCounters` instance.
+/// Used by both all-time and windowed metric paths, eliminating the
+/// ~100-line duplication between the former `resolve_alltime`/`resolve_windowed`.
+fn resolve_from_counters(c: &MetricCounters, metric: &str) -> Option<serde_json::Value> {
     match metric {
         "runs_completed" => Some(json!(c.runs_completed)),
         "runs_failed" => Some(json!(c.runs_failed)),
@@ -462,89 +530,8 @@ fn resolve_alltime(c: &SopCounters, metric: &str) -> Option<serde_json::Value> {
     }
 }
 
-fn resolve_windowed(c: &SopCounters, metric: &str, days: i64) -> Option<serde_json::Value> {
-    let cutoff = Utc::now() - chrono::Duration::days(days);
-    let window: Vec<&RunSnapshot> = c
-        .recent_runs
-        .iter()
-        .filter(|r| r.completed_at >= cutoff)
-        .collect();
-
-    // Accumulate windowed counters
-    let mut wc = WindowedCounters::default();
-    for snap in &window {
-        match snap.terminal_status {
-            SopRunStatus::Completed => wc.runs_completed += 1,
-            SopRunStatus::Failed => wc.runs_failed += 1,
-            SopRunStatus::Cancelled => wc.runs_cancelled += 1,
-            _ => {}
-        }
-        wc.steps_executed += snap.steps_executed;
-        wc.steps_defined += snap.steps_defined;
-        wc.steps_failed += snap.steps_failed;
-        wc.steps_skipped += snap.steps_skipped;
-        if snap.had_human_approval {
-            wc.human_approvals += 1;
-        }
-        if snap.had_timeout_approval {
-            wc.timeout_auto_approvals += 1;
-        }
-    }
-
-    match metric {
-        "runs_completed" => Some(json!(wc.runs_completed)),
-        "runs_failed" => Some(json!(wc.runs_failed)),
-        "runs_cancelled" => Some(json!(wc.runs_cancelled)),
-        "deviation_rate" => {
-            if wc.steps_executed == 0 {
-                Some(json!(0.0))
-            } else {
-                Some(json!(
-                    (wc.steps_failed + wc.steps_skipped) as f64 / wc.steps_executed as f64
-                ))
-            }
-        }
-        "protocol_adherence_rate" => {
-            if wc.steps_defined == 0 {
-                Some(json!(0.0))
-            } else {
-                let good = wc
-                    .steps_executed
-                    .saturating_sub(wc.steps_failed)
-                    .saturating_sub(wc.steps_skipped);
-                Some(json!(good as f64 / wc.steps_defined as f64))
-            }
-        }
-        "human_intervention_count" => Some(json!(wc.human_approvals)),
-        "human_intervention_rate" => Some(json!(
-            wc.human_approvals as f64 / wc.runs_completed.max(1) as f64
-        )),
-        "timeout_auto_approvals" => Some(json!(wc.timeout_auto_approvals)),
-        "timeout_approval_rate" => Some(json!(
-            wc.timeout_auto_approvals as f64 / wc.runs_completed.max(1) as f64
-        )),
-        "completion_rate" => {
-            let total = wc.runs_completed + wc.runs_failed + wc.runs_cancelled;
-            Some(json!(wc.runs_completed as f64 / total.max(1) as f64))
-        }
-        _ => None,
-    }
-}
-
-#[derive(Default)]
-struct WindowedCounters {
-    runs_completed: u64,
-    runs_failed: u64,
-    runs_cancelled: u64,
-    steps_executed: u64,
-    steps_defined: u64,
-    steps_failed: u64,
-    steps_skipped: u64,
-    human_approvals: u64,
-    timeout_auto_approvals: u64,
-}
-
-fn counters_to_json(c: &SopCounters) -> serde_json::Value {
+fn counters_to_json(sop: &SopCounters) -> serde_json::Value {
+    let c = &sop.counters;
     json!({
         "runs_completed": c.runs_completed,
         "runs_failed": c.runs_failed,
@@ -555,7 +542,7 @@ fn counters_to_json(c: &SopCounters) -> serde_json::Value {
         "steps_skipped": c.steps_skipped,
         "human_approvals": c.human_approvals,
         "timeout_auto_approvals": c.timeout_auto_approvals,
-        "recent_runs_depth": c.recent_runs.len(),
+        "recent_runs_depth": sop.recent_runs.len(),
     })
 }
 
@@ -641,7 +628,6 @@ mod tests {
     #[test]
     fn windowed_filtering() {
         let c = SopMetricsCollector::new();
-        // Completed run with recent timestamp
         let run = make_run(
             "r1",
             "test-sop",
@@ -654,7 +640,6 @@ mod tests {
         );
         c.record_run_complete(&run);
 
-        // 7-day window should include it (completed_at is recent)
         assert_eq!(
             c.get_metric_value("sop.runs_completed_7d"),
             Some(json!(1u64))
@@ -674,15 +659,12 @@ mod tests {
         let c = SopMetricsCollector::new();
         let run = make_run("r1", "test-sop", SopRunStatus::Completed, 0, vec![]);
         c.record_run_complete(&run);
-
-        // Zero steps_executed → deviation_rate = 0.0
         assert_eq!(c.get_metric_value("sop.deviation_rate"), Some(json!(0.0)));
     }
 
     #[test]
     fn protocol_adherence_rate_partial_run() {
         let c = SopMetricsCollector::new();
-        // 3 steps defined, 2 executed (1 completed, 1 failed)
         let run = make_run(
             "r1",
             "test-sop",
@@ -755,7 +737,6 @@ mod tests {
     #[test]
     fn derived_rate_metrics() {
         let c = SopMetricsCollector::new();
-        // Record approval then completed run
         c.record_approval("test-sop", "r1");
         c.record_timeout_auto_approve("test-sop", "r2");
 
@@ -792,7 +773,6 @@ mod tests {
             .unwrap();
         assert!((tar - 0.5).abs() < 1e-10);
 
-        // completion_rate = 2 / 2 = 1.0
         assert_eq!(c.get_metric_value("sop.completion_rate"), Some(json!(1.0)));
     }
 
@@ -824,7 +804,6 @@ mod tests {
     #[test]
     fn longest_match_disambiguation() {
         let c = SopMetricsCollector::new();
-        // Two SOPs: "valve" and "valve-shutdown"
         let r1 = make_run(
             "r1",
             "valve",
@@ -845,7 +824,6 @@ mod tests {
         c.record_run_complete(&r1);
         c.record_run_complete(&r2);
 
-        // "valve-shutdown" is the longest match
         assert_eq!(
             c.get_metric_value("sop.valve-shutdown.runs_failed"),
             Some(json!(1u64))
@@ -878,13 +856,11 @@ mod tests {
         );
         c.record_run_complete(&run);
 
-        // Snapshot should show the run had human approval
         let snap = c.snapshot();
         let global = &snap["global"];
         assert_eq!(global["human_approvals"], json!(1u64));
         assert_eq!(global["runs_completed"], json!(1u64));
 
-        // Windowed should reflect approval flag
         let hic = c
             .get_metric_value("sop.human_intervention_count_7d")
             .unwrap()
@@ -896,17 +872,13 @@ mod tests {
     #[test]
     fn pending_approval_stale_eviction() {
         let c = SopMetricsCollector::new();
-        // Record approval for a run that never completes
         c.record_approval("test-sop", "orphan-run");
 
-        // The pending_approvals map has 1 entry
         {
             let state = c.inner.read().unwrap();
             assert_eq!(state.pending_approvals.len(), 1);
         }
 
-        // Record a different run completing — this triggers eviction,
-        // but since the orphan entry is fresh it survives
         let run = make_run(
             "r2",
             "test-sop",
@@ -916,7 +888,7 @@ mod tests {
         );
         c.record_run_complete(&run);
 
-        // Orphan entry still present (not stale yet)
+        // Orphan entry still present (not stale yet — less than 1h old)
         {
             let state = c.inner.read().unwrap();
             assert_eq!(state.pending_approvals.len(), 1);
@@ -956,7 +928,6 @@ mod tests {
         c.record_run_complete(&run);
 
         assert_eq!(c.get_metric_value("sop.runs_cancelled"), Some(json!(1u64)));
-        // Cancelled in denominator lowers completion rate
         let cr = c
             .get_metric_value("sop.completion_rate")
             .unwrap()
@@ -964,6 +935,182 @@ mod tests {
             .unwrap();
         assert!((cr - 0.0).abs() < 1e-10);
     }
+
+    // ── BUG 1 regression: multiple approvals per run ──────────
+
+    #[test]
+    fn multiple_approvals_per_run_consistent() {
+        let c = SopMetricsCollector::new();
+        // 3 approval events on the same run
+        c.record_approval("test-sop", "r1");
+        c.record_approval("test-sop", "r1");
+        c.record_approval("test-sop", "r1");
+
+        let run = make_run(
+            "r1",
+            "test-sop",
+            SopRunStatus::Completed,
+            3,
+            vec![
+                make_step(1, SopStepStatus::Completed),
+                make_step(2, SopStepStatus::Completed),
+                make_step(3, SopStepStatus::Completed),
+            ],
+        );
+        c.record_run_complete(&run);
+
+        // All-time: 3 events
+        assert_eq!(
+            c.get_metric_value("sop.human_intervention_count"),
+            Some(json!(3u64))
+        );
+        // Windowed: also 3 events (not 1 run — consistent with all-time)
+        assert_eq!(
+            c.get_metric_value("sop.human_intervention_count_7d"),
+            Some(json!(3u64))
+        );
+        // Rate: 3 / 1 = 3.0 (3 approval events per 1 completed run)
+        let rate = c
+            .get_metric_value("sop.human_intervention_rate")
+            .unwrap()
+            .as_f64()
+            .unwrap();
+        assert!((rate - 3.0).abs() < 1e-10);
+    }
+
+    // ── Ring buffer overflow ──────────────────────────────────
+
+    #[test]
+    fn ring_buffer_overflow_cap() {
+        let c = SopMetricsCollector::new();
+        for i in 0..1001u64 {
+            let run = make_run(
+                &format!("r{i}"),
+                "test-sop",
+                SopRunStatus::Completed,
+                1,
+                vec![make_step(1, SopStepStatus::Completed)],
+            );
+            c.record_run_complete(&run);
+        }
+
+        // All-time counts all 1001
+        assert_eq!(
+            c.get_metric_value("sop.runs_completed"),
+            Some(json!(1001u64))
+        );
+        // Ring buffer capped at MAX_RECENT_RUNS
+        let snap = c.snapshot();
+        assert_eq!(snap["global"]["recent_runs_depth"], json!(MAX_RECENT_RUNS));
+        // Windowed returns up to cap (all recent, all within 7d)
+        let w = c
+            .get_metric_value("sop.runs_completed_7d")
+            .unwrap()
+            .as_u64()
+            .unwrap();
+        assert_eq!(w, MAX_RECENT_RUNS as u64);
+    }
+
+    // ── Windowed old-run exclusion ───────────────────────────
+
+    #[test]
+    fn windowed_excludes_old_runs() {
+        let c = SopMetricsCollector::new();
+        // Inject an old run snapshot directly (10 days ago)
+        {
+            let mut state = c.inner.write().unwrap();
+            let old_snap = RunSnapshot {
+                completed_at: Utc::now() - chrono::Duration::days(10),
+                terminal_status: SopRunStatus::Completed,
+                steps_executed: 1,
+                steps_defined: 1,
+                steps_failed: 0,
+                steps_skipped: 0,
+                human_approval_count: 0,
+                timeout_approval_count: 0,
+            };
+            state.global.counters.runs_completed += 1;
+            state.global.counters.steps_executed += 1;
+            state.global.counters.steps_defined += 1;
+            state.global.recent_runs.push_back(old_snap);
+        }
+
+        // All-time: 1
+        assert_eq!(c.get_metric_value("sop.runs_completed"), Some(json!(1u64)));
+        // 7d window: 0 (run is 10 days old)
+        assert_eq!(
+            c.get_metric_value("sop.runs_completed_7d"),
+            Some(json!(0u64))
+        );
+        // 30d window: 1 (run is 10 days old, within 30d)
+        assert_eq!(
+            c.get_metric_value("sop.runs_completed_30d"),
+            Some(json!(1u64))
+        );
+    }
+
+    // ── SOP name matching metric suffix (S3 edge case) ───────
+
+    #[test]
+    fn sop_name_matching_metric_suffix_resolves_global() {
+        let c = SopMetricsCollector::new();
+        // SOP named "runs_completed" — an edge case
+        let run = make_run(
+            "r1",
+            "runs_completed",
+            SopRunStatus::Completed,
+            1,
+            vec![make_step(1, SopStepStatus::Completed)],
+        );
+        c.record_run_complete(&run);
+
+        // "sop.runs_completed" resolves to global (1), not per-SOP
+        assert_eq!(c.get_metric_value("sop.runs_completed"), Some(json!(1u64)));
+        // Per-SOP accessible via full path
+        assert_eq!(
+            c.get_metric_value("sop.runs_completed.runs_completed"),
+            Some(json!(1u64))
+        );
+    }
+
+    // ── MetricsProvider impl (ampersona-gates feature) ───────
+
+    #[cfg(feature = "ampersona-gates")]
+    #[test]
+    fn metrics_provider_get_metric() {
+        use ampersona_core::traits::{MetricQuery, MetricsProvider};
+
+        let c = SopMetricsCollector::new();
+        let run = make_run(
+            "r1",
+            "test-sop",
+            SopRunStatus::Completed,
+            1,
+            vec![make_step(1, SopStepStatus::Completed)],
+        );
+        c.record_run_complete(&run);
+
+        let query = MetricQuery {
+            name: "sop.runs_completed".into(),
+            window: None,
+        };
+        let sample = c.get_metric(&query).unwrap();
+        assert_eq!(sample.value, json!(1u64));
+        assert_eq!(sample.name, "sop.runs_completed");
+
+        // NotFound for unknown metric
+        let bad_query = MetricQuery {
+            name: "sop.nonexistent".into(),
+            window: None,
+        };
+        let err = c.get_metric(&bad_query).unwrap_err();
+        assert!(matches!(
+            err,
+            ampersona_core::errors::MetricError::NotFound(_)
+        ));
+    }
+
+    // ── Warm-start tests ─────────────────────────────────────
 
     #[tokio::test]
     async fn warm_start_roundtrip() {
@@ -975,7 +1122,6 @@ mod tests {
         let memory: std::sync::Arc<dyn Memory> =
             std::sync::Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
 
-        // Store a completed run + approval via audit logger
         let audit = crate::sop::SopAuditLogger::new(memory.clone());
         let run = make_run(
             "r1",
@@ -991,7 +1137,6 @@ mod tests {
         audit.log_run_complete(&run).await.unwrap();
         audit.log_approval(&run, 1).await.unwrap();
 
-        // Rebuild from memory
         let collector = SopMetricsCollector::rebuild_from_memory(memory.as_ref())
             .await
             .unwrap();
@@ -1021,7 +1166,6 @@ mod tests {
             std::sync::Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
 
         let audit = crate::sop::SopAuditLogger::new(memory.clone());
-        // Store a Running (non-terminal) run
         let run = SopRun {
             run_id: "r1".into(),
             sop_name: "test-sop".into(),
@@ -1040,7 +1184,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Running run should not be counted
         assert_eq!(
             collector.get_metric_value("sop.runs_completed"),
             Some(json!(0u64))
@@ -1078,8 +1221,6 @@ mod tests {
             std::sync::Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
 
         let audit = crate::sop::SopAuditLogger::new(memory.clone());
-
-        // Run with timeout approval
         let run = make_run(
             "r1",
             "test-sop",
@@ -1099,12 +1240,80 @@ mod tests {
             collector.get_metric_value("sop.timeout_auto_approvals"),
             Some(json!(1u64))
         );
-        // Windowed variant should also reflect approval in snapshot
         let ta_7d = collector
             .get_metric_value("sop.timeout_auto_approvals_7d")
             .unwrap()
             .as_u64()
             .unwrap();
         assert_eq!(ta_7d, 1);
+    }
+
+    // ── BUG 2 regression: warm-start pending for non-terminal runs ──
+
+    #[tokio::test]
+    async fn warm_start_preserves_pending_for_nonterminal_runs() {
+        let mem_cfg = crate::config::MemoryConfig {
+            backend: "sqlite".into(),
+            ..crate::config::MemoryConfig::default()
+        };
+        let tmp = tempfile::tempdir().unwrap();
+        let memory: std::sync::Arc<dyn Memory> =
+            std::sync::Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+
+        let audit = crate::sop::SopAuditLogger::new(memory.clone());
+
+        // Store a Running (non-terminal) run with an approval
+        let running_run = SopRun {
+            run_id: "r1".into(),
+            sop_name: "test-sop".into(),
+            trigger_event: make_event(),
+            status: SopRunStatus::Running,
+            current_step: 1,
+            total_steps: 3,
+            started_at: "2026-02-19T12:00:00Z".into(),
+            completed_at: None,
+            step_results: vec![],
+            waiting_since: None,
+        };
+        audit.log_run_start(&running_run).await.unwrap();
+        audit.log_approval(&running_run, 1).await.unwrap();
+
+        // Warm-start: run is non-terminal, approval should go into pending
+        let collector = SopMetricsCollector::rebuild_from_memory(memory.as_ref())
+            .await
+            .unwrap();
+
+        // All-time approval counted
+        assert_eq!(
+            collector.get_metric_value("sop.human_intervention_count"),
+            Some(json!(1u64))
+        );
+        // No completed runs yet
+        assert_eq!(
+            collector.get_metric_value("sop.runs_completed"),
+            Some(json!(0u64))
+        );
+
+        // Now complete the run via live push (simulating post-restart completion)
+        let completed_run = make_run(
+            "r1",
+            "test-sop",
+            SopRunStatus::Completed,
+            3,
+            vec![
+                make_step(1, SopStepStatus::Completed),
+                make_step(2, SopStepStatus::Completed),
+                make_step(3, SopStepStatus::Completed),
+            ],
+        );
+        collector.record_run_complete(&completed_run);
+
+        // Windowed should reflect the approval from before the restart
+        let hic_7d = collector
+            .get_metric_value("sop.human_intervention_count_7d")
+            .unwrap()
+            .as_u64()
+            .unwrap();
+        assert_eq!(hic_7d, 1);
     }
 }

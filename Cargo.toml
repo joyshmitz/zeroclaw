@@ -171,6 +171,7 @@ wa-rs-ureq-http = { version = "0.2", optional = true }
 wa-rs-tokio-transport = { version = "0.2", optional = true, default-features = false }
 
 # Gate metrics integration (dev-only path dep — replace with git or version dep before merge to main)
+# Requires sibling repos: ../ampersona, ../toon_rust (transitive via ampersona-core → tru)
 ampersona-core = { path = "../ampersona/crates/ampersona-core", optional = true }
 
 # Raspberry Pi GPIO / Landlock (Linux only) — target-specific to avoid compile failure on macOS
@@ -208,6 +209,7 @@ whatsapp-web = ["dep:wa-rs", "dep:wa-rs-core", "dep:wa-rs-binary", "dep:wa-rs-pr
 
 # Ampersona gate metrics integration
 ampersona-gates = ["dep:ampersona-core"]
+
 [profile.release]
 opt-level = "z"      # Optimize for size
 lto = "fat"          # Maximum cross-crate optimization for smaller binaries
