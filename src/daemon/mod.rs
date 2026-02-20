@@ -1,8 +1,10 @@
 use crate::config::Config;
+use crate::sop::dispatch::SopCronCache;
 use anyhow::Result;
 use chrono::Utc;
 use std::future::Future;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
 
@@ -23,11 +25,28 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
                 .await;
     }
 
+    // ── Shared SOP resources (single engine for all components) ──
+    let sop_engine: Option<Arc<Mutex<crate::sop::SopEngine>>> =
+        crate::tools::create_sop_engine(&config.sop, &config.workspace_dir);
+    let sop_audit: Option<Arc<crate::sop::SopAuditLogger>> = sop_engine.as_ref().and_then(|_| {
+        crate::memory::create_memory(&config.memory, &config.workspace_dir, None)
+            .ok()
+            .map(|m| {
+                Arc::new(crate::sop::SopAuditLogger::new(
+                    Arc::from(m) as Arc<dyn crate::memory::traits::Memory>
+                ))
+            })
+    });
+    let sop_cron_cache: Option<SopCronCache> = sop_engine.as_ref().map(SopCronCache::from_engine);
+
     let mut handles: Vec<JoinHandle<()>> = vec![spawn_state_writer(config.clone())];
 
+    // ── Gateway ──
     {
         let gateway_cfg = config.clone();
         let gateway_host = host.clone();
+        let engine_for_gw = sop_engine.clone();
+        let audit_for_gw = sop_audit.clone();
         handles.push(spawn_component_supervisor(
             "gateway",
             initial_backoff,
@@ -35,11 +54,14 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
             move || {
                 let cfg = gateway_cfg.clone();
                 let host = gateway_host.clone();
-                async move { crate::gateway::run_gateway(&host, port, cfg).await }
+                let engine = engine_for_gw.clone();
+                let audit = audit_for_gw.clone();
+                async move { crate::gateway::run_gateway(&host, port, cfg, engine, audit).await }
             },
         ));
     }
 
+    // ── Channels ──
     {
         if has_supervised_channels(&config) {
             let channels_cfg = config.clone();
@@ -58,6 +80,7 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
         }
     }
 
+    // ── Heartbeat ──
     if config.heartbeat.enabled {
         let heartbeat_cfg = config.clone();
         handles.push(spawn_component_supervisor(
@@ -71,20 +94,53 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
         ));
     }
 
+    // ── Scheduler ──
     if config.cron.enabled {
         let scheduler_cfg = config.clone();
+        let engine_for_sched = sop_engine.clone();
+        let audit_for_sched = sop_audit.clone();
+        let cache_for_sched = sop_cron_cache.clone();
         handles.push(spawn_component_supervisor(
             "scheduler",
             initial_backoff,
             max_backoff,
             move || {
                 let cfg = scheduler_cfg.clone();
-                async move { crate::cron::scheduler::run(cfg).await }
+                let engine = engine_for_sched.clone();
+                let audit = audit_for_sched.clone();
+                let cache = cache_for_sched.clone();
+                async move { crate::cron::scheduler::run(cfg, engine, audit, cache).await }
             },
         ));
     } else {
         crate::health::mark_component_ok("scheduler");
         tracing::info!("Cron disabled; scheduler supervisor not started");
+    }
+
+    // ── MQTT SOP listener ──
+    if let Some(ref mqtt_config) = config.channels_config.mqtt {
+        if let (Some(ref engine), Some(ref audit)) = (&sop_engine, &sop_audit) {
+            let mqtt_cfg = mqtt_config.clone();
+            let engine_for_mqtt = Arc::clone(engine);
+            let audit_for_mqtt = Arc::clone(audit);
+            handles.push(spawn_component_supervisor(
+                "mqtt",
+                initial_backoff,
+                max_backoff,
+                move || {
+                    let cfg = mqtt_cfg.clone();
+                    let engine = Arc::clone(&engine_for_mqtt);
+                    let audit = Arc::clone(&audit_for_mqtt);
+                    async move {
+                        crate::channels::mqtt::run_mqtt_sop_listener(&cfg, engine, audit).await
+                    }
+                },
+            ));
+        } else {
+            tracing::warn!(
+                "MQTT config present but SOP engine not available; MQTT listener disabled"
+            );
+        }
     }
 
     println!("🧠 ZeroClaw daemon started");

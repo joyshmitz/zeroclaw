@@ -7,11 +7,12 @@ use crate::cron::{
     update_job, CronJob, CronJobPatch, DeliveryConfig, JobType, Schedule, SessionTarget,
 };
 use crate::security::SecurityPolicy;
+use crate::sop::dispatch::SopCronCache;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use futures_util::{stream, StreamExt};
 use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::process::Command;
 use tokio::time::{self, Duration};
 
@@ -19,7 +20,12 @@ const MIN_POLL_SECONDS: u64 = 5;
 const SHELL_JOB_TIMEOUT_SECS: u64 = 120;
 const SCHEDULER_COMPONENT: &str = "scheduler";
 
-pub async fn run(config: Config) -> Result<()> {
+pub async fn run(
+    config: Config,
+    sop_engine: Option<Arc<Mutex<crate::sop::SopEngine>>>,
+    sop_audit: Option<Arc<crate::sop::SopAuditLogger>>,
+    sop_cron_cache: Option<SopCronCache>,
+) -> Result<()> {
     let poll_secs = config.reliability.scheduler_poll_secs.max(MIN_POLL_SECONDS);
     let mut interval = time::interval(Duration::from_secs(poll_secs));
     interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
@@ -29,6 +35,7 @@ pub async fn run(config: Config) -> Result<()> {
     ));
 
     crate::health::mark_component_ok(SCHEDULER_COMPONENT);
+    let mut last_sop_cron_check = Utc::now();
 
     loop {
         interval.tick().await;
@@ -45,6 +52,71 @@ pub async fn run(config: Config) -> Result<()> {
         };
 
         process_due_jobs(&config, &security, jobs, SCHEDULER_COMPONENT).await;
+
+        // SOP cron check (window-based) + approval timeout polling
+        if let (Some(ref engine), Some(ref audit), Some(ref cache)) =
+            (&sop_engine, &sop_audit, &sop_cron_cache)
+        {
+            let results = crate::sop::dispatch::check_sop_cron_triggers(
+                engine,
+                audit,
+                cache,
+                &mut last_sop_cron_check,
+            )
+            .await;
+            crate::sop::dispatch::process_headless_results(&results).await;
+        }
+
+        // SOP approval timeout — check even without cron cache.
+        // Mirrors interactive loop behavior: snapshot runs under lock, then audit async.
+        if let Some(ref engine) = sop_engine {
+            let (actions, audit_runs) = match engine.lock() {
+                Ok(mut eng) => {
+                    let actions = eng.check_approval_timeouts();
+                    let mut runs = Vec::new();
+                    for action in &actions {
+                        if let crate::sop::types::SopRunAction::ExecuteStep { run_id, .. } = action
+                        {
+                            if let Some(run) = eng.get_run(run_id).cloned() {
+                                runs.push(run);
+                            }
+                        }
+                    }
+                    (actions, runs)
+                }
+                Err(e) => {
+                    tracing::error!("SOP engine lock poisoned in scheduler timeout check: {e}");
+                    crate::health::mark_component_error(
+                        "sop_scheduler",
+                        format!("lock poisoned: {e}"),
+                    );
+                    (Vec::new(), Vec::new())
+                }
+            };
+            // Engine lock dropped — safe to await audit
+            for action in &actions {
+                match action {
+                    crate::sop::types::SopRunAction::ExecuteStep { run_id, step, .. } => {
+                        tracing::warn!(
+                            "SOP approval timeout: run {run_id} auto-approved, ready for \
+                             step {} '{}' but no agent loop available",
+                            step.number,
+                            step.title,
+                        );
+                    }
+                    other => {
+                        tracing::info!("SOP approval timeout action: {other:?}");
+                    }
+                }
+            }
+            if let Some(ref audit) = sop_audit {
+                for run in &audit_runs {
+                    if let Err(e) = audit.log_timeout_auto_approve(run, run.current_step).await {
+                        tracing::warn!("SOP audit log for timeout auto-approve failed: {e}");
+                    }
+                }
+            }
+        }
     }
 }
 

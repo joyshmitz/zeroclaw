@@ -785,7 +785,7 @@ async fn main() -> Result<()> {
             } else {
                 info!("🚀 Starting ZeroClaw Gateway on {host}:{port}");
             }
-            gateway::run_gateway(&host, port, config).await
+            gateway::run_gateway(&host, port, config, None, None).await
         }
 
         Commands::Daemon { port, host } => {
