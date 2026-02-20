@@ -2526,6 +2526,7 @@ pub struct ChannelsConfig {
     /// Default: 300s for on-device LLMs (Ollama) which are slower than cloud APIs.
     #[serde(default = "default_channel_message_timeout_secs")]
     pub message_timeout_secs: u64,
+    pub mqtt: Option<MqttConfig>,
 }
 
 impl ChannelsConfig {
@@ -2641,7 +2642,86 @@ impl Default for ChannelsConfig {
             nostr: None,
             clawdtalk: None,
             message_timeout_secs: default_channel_message_timeout_secs(),
+            mqtt: None,
         }
+    }
+}
+
+// ── MQTT ──────────────────────────────────────────────────────────
+
+fn default_mqtt_client_id() -> String {
+    "zeroclaw".into()
+}
+
+fn default_mqtt_qos() -> u8 {
+    1
+}
+
+fn default_mqtt_keep_alive() -> u64 {
+    30
+}
+
+/// MQTT broker connection config for SOP event fan-in.
+///
+/// This is NOT a conversation channel — MQTT messages are routed
+/// to the SOP engine, not to the agent loop.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MqttConfig {
+    /// Broker URL, e.g. "mqtt://localhost:1883"
+    pub broker_url: String,
+    /// MQTT client ID (default: "zeroclaw")
+    #[serde(default = "default_mqtt_client_id")]
+    pub client_id: String,
+    /// Topics to subscribe to
+    pub topics: Vec<String>,
+    /// QoS level: 0, 1, or 2 (default: 1)
+    #[serde(default = "default_mqtt_qos")]
+    pub qos: u8,
+    /// Optional username for broker authentication
+    pub username: Option<String>,
+    /// Optional password for broker authentication
+    pub password: Option<String>,
+    /// Enable TLS (default: false).
+    ///
+    /// TLS is driven by the URL scheme: `mqtts://` enables TLS, `mqtt://` disables it.
+    /// This field is validated for consistency with the scheme: `use_tls: true`
+    /// requires `mqtts://` and vice versa.
+    #[serde(default)]
+    pub use_tls: bool,
+    /// Keep-alive interval in seconds (default: 30)
+    #[serde(default = "default_mqtt_keep_alive")]
+    pub keep_alive_secs: u64,
+}
+
+impl MqttConfig {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        if !self.broker_url.starts_with("mqtt://") && !self.broker_url.starts_with("mqtts://") {
+            anyhow::bail!("mqtt.broker_url must start with mqtt:// or mqtts://");
+        }
+        if self.qos > 2 {
+            anyhow::bail!("mqtt.qos must be 0, 1, or 2 (got {})", self.qos);
+        }
+        if self.topics.is_empty() {
+            anyhow::bail!("mqtt.topics must contain at least one topic");
+        }
+        if self.client_id.is_empty() {
+            anyhow::bail!("mqtt.client_id must not be empty");
+        }
+        // Validate use_tls consistency with URL scheme
+        let is_mqtts = self.broker_url.starts_with("mqtts://");
+        if self.use_tls && !is_mqtts {
+            anyhow::bail!(
+                "mqtt.use_tls is true but broker_url uses mqtt:// scheme. \
+                 Use mqtts:// for TLS connections"
+            );
+        }
+        if is_mqtts && !self.use_tls {
+            anyhow::bail!(
+                "mqtt.broker_url uses mqtts:// scheme but use_tls is false. \
+                 Set use_tls = true or use mqtt:// for plaintext"
+            );
+        }
+        Ok(())
     }
 }
 
@@ -4731,6 +4811,7 @@ default_temperature = 0.7
                 nostr: None,
                 clawdtalk: None,
                 message_timeout_secs: 300,
+                mqtt: None,
             },
             memory: MemoryConfig::default(),
             storage: StorageConfig::default(),
@@ -5286,6 +5367,7 @@ allowed_users = ["@ops:matrix.org"]
             nostr: None,
             clawdtalk: None,
             message_timeout_secs: 300,
+            mqtt: None,
         };
         let toml_str = toml::to_string_pretty(&c).unwrap();
         let parsed: ChannelsConfig = toml::from_str(&toml_str).unwrap();
@@ -5498,6 +5580,8 @@ channel_id = "C123"
             nostr: None,
             clawdtalk: None,
             message_timeout_secs: 300,
+            mqtt: None,
+            mqtt: None,
         };
         let toml_str = toml::to_string_pretty(&c).unwrap();
         let parsed: ChannelsConfig = toml::from_str(&toml_str).unwrap();
