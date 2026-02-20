@@ -29,6 +29,7 @@ pub mod matrix;
 pub mod mattermost;
 pub mod nextcloud_talk;
 pub mod nostr;
+pub mod mqtt;
 pub mod qq;
 pub mod signal;
 pub mod slack;

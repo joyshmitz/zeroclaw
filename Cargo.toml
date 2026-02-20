@@ -110,6 +110,9 @@ glob = "0.3"
 # Binary discovery (init system detection)
 which = "8.0"
 
+# MQTT event bus
+rumqttc = "0.24"
+
 # WebSocket client channels (Discord/Lark/DingTalk/Nostr)
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
