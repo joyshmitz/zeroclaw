@@ -11,6 +11,8 @@ use crate::sop::{SopEngine, SopMetricsCollector};
 pub struct SopStatusTool {
     engine: Arc<Mutex<SopEngine>>,
     collector: Option<Arc<SopMetricsCollector>>,
+    #[cfg(feature = "ampersona-gates")]
+    gate_eval: Option<Arc<crate::sop::GateEvalState>>,
 }
 
 impl SopStatusTool {
@@ -18,12 +20,73 @@ impl SopStatusTool {
         Self {
             engine,
             collector: None,
+            #[cfg(feature = "ampersona-gates")]
+            gate_eval: None,
         }
     }
 
     pub fn with_collector(mut self, collector: Arc<SopMetricsCollector>) -> Self {
         self.collector = Some(collector);
         self
+    }
+
+    #[cfg(feature = "ampersona-gates")]
+    pub fn with_gate_eval(mut self, gate_eval: Arc<crate::sop::GateEvalState>) -> Self {
+        self.gate_eval = Some(gate_eval);
+        self
+    }
+
+    fn append_gate_status(&self, output: &mut String, include_gate_status: bool) {
+        #[cfg(feature = "ampersona-gates")]
+        if include_gate_status {
+            if let Some(ref ge) = self.gate_eval {
+                if let Some(snap) = ge.phase_state_snapshot() {
+                    let _ = writeln!(output, "\nGate Status:");
+                    let _ = writeln!(
+                        output,
+                        "  current_phase: {}",
+                        snap.current_phase.as_deref().unwrap_or("(none)")
+                    );
+                    let _ = writeln!(output, "  state_rev: {}", snap.state_rev);
+                    let _ = writeln!(output, "  gates_loaded: {}", ge.gate_count());
+                    if let Some(ref tr) = snap.last_transition {
+                        let _ = writeln!(
+                            output,
+                            "  last_transition: {} ({} → {})",
+                            tr.at.to_rfc3339(),
+                            tr.from_phase.as_deref().unwrap_or("(none)"),
+                            tr.to_phase,
+                        );
+                    } else {
+                        let _ = writeln!(output, "  last_transition: none");
+                    }
+                    if let Some(ref pt) = snap.pending_transition {
+                        let _ = writeln!(
+                            output,
+                            "  pending_transition: {} → {} ({})",
+                            pt.from_phase.as_deref().unwrap_or("(none)"),
+                            pt.to_phase,
+                            pt.decision,
+                        );
+                    } else {
+                        let _ = writeln!(output, "  pending_transition: none");
+                    }
+                }
+            } else {
+                let _ = writeln!(
+                    output,
+                    "\nGate Status: not available (gate eval not configured)"
+                );
+            }
+        }
+
+        #[cfg(not(feature = "ampersona-gates"))]
+        if include_gate_status {
+            let _ = writeln!(
+                output,
+                "\nGate Status: not available (ampersona-gates feature not enabled)"
+            );
+        }
     }
 }
 
@@ -52,6 +115,10 @@ impl Tool for SopStatusTool {
                 "include_metrics": {
                     "type": "boolean",
                     "description": "Include aggregated SOP metrics (completion rate, deviation rate, intervention counts, windowed variants)"
+                },
+                "include_gate_status": {
+                    "type": "boolean",
+                    "description": "Include trust phase and gate evaluation status"
                 }
             }
         })
@@ -62,6 +129,10 @@ impl Tool for SopStatusTool {
         let sop_name = args.get("sop_name").and_then(|v| v.as_str());
         let include_metrics = args
             .get("include_metrics")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let include_gate_status = args
+            .get("include_gate_status")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
@@ -96,6 +167,7 @@ impl Tool for SopStatusTool {
                             );
                         }
                     }
+                    self.append_gate_status(&mut output, include_gate_status);
                     Ok(ToolResult {
                         success: true,
                         output,
@@ -168,6 +240,8 @@ impl Tool for SopStatusTool {
                 );
             }
         }
+
+        self.append_gate_status(&mut output, include_gate_status);
 
         Ok(ToolResult {
             success: true,

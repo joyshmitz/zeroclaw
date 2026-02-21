@@ -2,11 +2,15 @@ pub mod audit;
 pub mod condition;
 pub mod dispatch;
 pub mod engine;
+#[cfg(feature = "ampersona-gates")]
+pub mod gates;
 pub mod metrics;
 pub mod types;
 
 pub use audit::SopAuditLogger;
 pub use engine::SopEngine;
+#[cfg(feature = "ampersona-gates")]
+pub use gates::GateEvalState;
 pub use metrics::SopMetricsCollector;
 #[allow(unused_imports)]
 pub use types::{
@@ -41,14 +45,18 @@ pub fn resolve_sops_dir(workspace_dir: &Path, config_dir: Option<&str>) -> PathB
 // ── SOP loading ─────────────────────────────────────────────────
 
 /// Load all SOPs from the configured directory.
-pub fn load_sops(workspace_dir: &Path, config_dir: Option<&str>) -> Vec<Sop> {
+pub fn load_sops(
+    workspace_dir: &Path,
+    config_dir: Option<&str>,
+    default_execution_mode: SopExecutionMode,
+) -> Vec<Sop> {
     let dir = resolve_sops_dir(workspace_dir, config_dir);
-    load_sops_from_directory(&dir)
+    load_sops_from_directory(&dir, default_execution_mode)
 }
 
 /// Load SOPs from a specific directory. Each subdirectory may contain
 /// `SOP.toml` (metadata + triggers) and `SOP.md` (procedure steps).
-fn load_sops_from_directory(sops_dir: &Path) -> Vec<Sop> {
+fn load_sops_from_directory(sops_dir: &Path, default_execution_mode: SopExecutionMode) -> Vec<Sop> {
     if !sops_dir.exists() {
         return Vec::new();
     }
@@ -70,7 +78,7 @@ fn load_sops_from_directory(sops_dir: &Path) -> Vec<Sop> {
             continue;
         }
 
-        match load_sop(&path) {
+        match load_sop(&path, default_execution_mode) {
             Ok(sop) => sops.push(sop),
             Err(e) => {
                 warn!("Failed to load SOP from {}: {e}", path.display());
@@ -83,7 +91,7 @@ fn load_sops_from_directory(sops_dir: &Path) -> Vec<Sop> {
 }
 
 /// Load a single SOP from a directory containing SOP.toml and optionally SOP.md.
-fn load_sop(sop_dir: &Path) -> Result<Sop> {
+fn load_sop(sop_dir: &Path, default_execution_mode: SopExecutionMode) -> Result<Sop> {
     let toml_path = sop_dir.join("SOP.toml");
     let toml_content = std::fs::read_to_string(&toml_path)?;
     let manifest: SopManifest = toml::from_str(&toml_content)?;
@@ -111,7 +119,7 @@ fn load_sop(sop_dir: &Path) -> Result<Sop> {
         description,
         version,
         priority,
-        execution_mode,
+        execution_mode: execution_mode.unwrap_or(default_execution_mode),
         triggers: manifest.triggers,
         steps,
         cooldown_secs,
@@ -338,7 +346,11 @@ pub fn handle_command(command: crate::SopCommands, config: &crate::config::Confi
 
     match command {
         crate::SopCommands::List => {
-            let sops = load_sops(&config.workspace_dir, sops_dir_override);
+            let sops = load_sops(
+                &config.workspace_dir,
+                sops_dir_override,
+                config.sop.default_execution_mode,
+            );
             if sops.is_empty() {
                 println!("No SOPs found.");
                 println!();
@@ -378,7 +390,11 @@ pub fn handle_command(command: crate::SopCommands, config: &crate::config::Confi
         }
 
         crate::SopCommands::Validate { name } => {
-            let sops = load_sops(&config.workspace_dir, sops_dir_override);
+            let sops = load_sops(
+                &config.workspace_dir,
+                sops_dir_override,
+                config.sop.default_execution_mode,
+            );
             let matching: Vec<&Sop> = if let Some(ref name) = name {
                 sops.iter().filter(|s| s.name == *name).collect()
             } else {
@@ -424,7 +440,11 @@ pub fn handle_command(command: crate::SopCommands, config: &crate::config::Confi
         }
 
         crate::SopCommands::Show { name } => {
-            let sops = load_sops(&config.workspace_dir, sops_dir_override);
+            let sops = load_sops(
+                &config.workspace_dir,
+                sops_dir_override,
+                config.sop.default_execution_mode,
+            );
             let sop = sops
                 .iter()
                 .find(|s| s.name == name)
@@ -596,7 +616,7 @@ path = "/sop/test"
         )
         .unwrap();
 
-        let sops = load_sops_from_directory(dir.path());
+        let sops = load_sops_from_directory(dir.path(), SopExecutionMode::Supervised);
         assert_eq!(sops.len(), 1);
 
         let sop = &sops[0];
@@ -613,13 +633,14 @@ path = "/sop/test"
     #[test]
     fn load_sops_empty_dir() {
         let dir = tempfile::tempdir().unwrap();
-        let sops = load_sops_from_directory(dir.path());
+        let sops = load_sops_from_directory(dir.path(), SopExecutionMode::Supervised);
         assert!(sops.is_empty());
     }
 
     #[test]
     fn load_sops_nonexistent_dir() {
-        let sops = load_sops_from_directory(Path::new("/nonexistent/path"));
+        let sops =
+            load_sops_from_directory(Path::new("/nonexistent/path"), SopExecutionMode::Supervised);
         assert!(sops.is_empty());
     }
 
@@ -642,9 +663,33 @@ type = "manual"
         )
         .unwrap();
 
-        let sops = load_sops_from_directory(dir.path());
+        let sops = load_sops_from_directory(dir.path(), SopExecutionMode::Supervised);
         assert_eq!(sops.len(), 1);
         assert!(sops[0].steps.is_empty());
+    }
+
+    #[test]
+    fn load_sop_uses_config_default_execution_mode_when_omitted() {
+        let dir = tempfile::tempdir().unwrap();
+        let sop_dir = dir.path().join("default-mode");
+        fs::create_dir_all(&sop_dir).unwrap();
+
+        fs::write(
+            sop_dir.join("SOP.toml"),
+            r#"
+[sop]
+name = "default-mode"
+description = "SOP without explicit execution mode"
+
+[[triggers]]
+type = "manual"
+"#,
+        )
+        .unwrap();
+
+        let sops = load_sops_from_directory(dir.path(), SopExecutionMode::Auto);
+        assert_eq!(sops.len(), 1);
+        assert_eq!(sops[0].execution_mode, SopExecutionMode::Auto);
     }
 
     #[test]

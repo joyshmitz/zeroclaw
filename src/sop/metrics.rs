@@ -334,6 +334,58 @@ impl SopMetricsCollector {
 
     // ── Diagnostics ────────────────────────────────────────────
 
+    /// Resolve a metric with an explicit time window (from `Criterion.window_seconds`).
+    ///
+    /// The `name` is the base metric name (e.g. `"sop.completion_rate"`).
+    /// The `window` is the Duration from the evaluator.
+    pub fn get_metric_value_windowed(
+        &self,
+        name: &str,
+        window: &std::time::Duration,
+    ) -> Option<serde_json::Value> {
+        let state = self.inner.read().ok()?;
+        let rest = name.strip_prefix("sop.")?;
+
+        // Extract prefix (global vs per-sop) and base metric
+        let (counters, metric_name) = if let Some(dot) = rest.find('.') {
+            // Could be per-SOP: "sop.<sop_name>.<metric>"
+            // Use longest-match-first for consistency with get_metric_value
+            let mut best_key: Option<&str> = None;
+            let mut best_len = 0;
+            for key in state.per_sop.keys() {
+                if rest.starts_with(key.as_str()) {
+                    let next_char_idx = key.len();
+                    if rest.len() > next_char_idx
+                        && rest.as_bytes()[next_char_idx] == b'.'
+                        && key.len() > best_len
+                    {
+                        best_key = Some(key.as_str());
+                        best_len = key.len();
+                    }
+                }
+            }
+            if let Some(sop_key) = best_key {
+                let suffix = &rest[sop_key.len() + 1..];
+                match state.per_sop.get(sop_key) {
+                    Some(c) => (c, suffix),
+                    None => return None,
+                }
+            } else {
+                // No matching SOP name prefix — treat as global metric
+                // (handles case where metric name contains dots but isn't per-SOP)
+                let _ = dot; // silence unused warning
+                (&state.global, rest)
+            }
+        } else {
+            // bare metric after "sop.": global
+            (&state.global, rest)
+        };
+
+        let cutoff = Utc::now() - chrono::Duration::from_std(*window).ok()?;
+        let wc = aggregate_windowed(&counters.recent_runs, cutoff);
+        resolve_from_counters(&wc, metric_name)
+    }
+
     /// Return a full snapshot of collector state for health/debug purposes.
     pub fn snapshot(&self) -> serde_json::Value {
         let Ok(state) = self.inner.read() else {
@@ -372,10 +424,17 @@ impl ampersona_core::traits::MetricsProvider for SopMetricsCollector {
         if self.inner.is_poisoned() {
             return Err(ampersona_core::errors::MetricError::ProviderUnavailable);
         }
-        self.get_metric_value(&query.name)
-            .map(|value| ampersona_core::traits::MetricSample {
+        let value = if let Some(ref window) = query.window {
+            // Window specified by evaluator (from Criterion.window_seconds)
+            self.get_metric_value_windowed(&query.name, window)
+        } else {
+            // No window — use name as-is (may include _7d/_30d suffix or be all-time)
+            self.get_metric_value(&query.name)
+        };
+        value
+            .map(|v| ampersona_core::traits::MetricSample {
                 name: query.name.clone(),
-                value,
+                value: v,
                 sampled_at: Utc::now(),
             })
             .ok_or_else(|| ampersona_core::errors::MetricError::NotFound(query.name.clone()))
@@ -448,6 +507,31 @@ fn parse_completed_at(ts: &str) -> Option<DateTime<Utc>> {
     None
 }
 
+/// Aggregate run snapshots newer than `cutoff` into metric counters.
+fn aggregate_windowed(
+    recent_runs: &VecDeque<RunSnapshot>,
+    cutoff: DateTime<Utc>,
+) -> MetricCounters {
+    let mut wc = MetricCounters::default();
+    for snap in recent_runs {
+        if snap.completed_at >= cutoff {
+            match snap.terminal_status {
+                SopRunStatus::Completed => wc.runs_completed += 1,
+                SopRunStatus::Failed => wc.runs_failed += 1,
+                SopRunStatus::Cancelled => wc.runs_cancelled += 1,
+                _ => {}
+            }
+            wc.steps_executed += snap.steps_executed;
+            wc.steps_defined += snap.steps_defined;
+            wc.steps_failed += snap.steps_failed;
+            wc.steps_skipped += snap.steps_skipped;
+            wc.human_approvals += snap.human_approval_count;
+            wc.timeout_auto_approvals += snap.timeout_approval_count;
+        }
+    }
+    wc
+}
+
 /// Resolve a metric suffix against a `SopCounters` struct.
 fn resolve_metric(sop: &SopCounters, suffix: &str) -> Option<serde_json::Value> {
     // Check for windowed variant
@@ -463,23 +547,7 @@ fn resolve_metric(sop: &SopCounters, suffix: &str) -> Option<serde_json::Value> 
 
     if let Some(days) = window_days {
         let cutoff = Utc::now() - chrono::Duration::days(days);
-        let mut wc = MetricCounters::default();
-        for snap in &sop.recent_runs {
-            if snap.completed_at >= cutoff {
-                match snap.terminal_status {
-                    SopRunStatus::Completed => wc.runs_completed += 1,
-                    SopRunStatus::Failed => wc.runs_failed += 1,
-                    SopRunStatus::Cancelled => wc.runs_cancelled += 1,
-                    _ => {}
-                }
-                wc.steps_executed += snap.steps_executed;
-                wc.steps_defined += snap.steps_defined;
-                wc.steps_failed += snap.steps_failed;
-                wc.steps_skipped += snap.steps_skipped;
-                wc.human_approvals += snap.human_approval_count;
-                wc.timeout_auto_approvals += snap.timeout_approval_count;
-            }
-        }
+        let wc = aggregate_windowed(&sop.recent_runs, cutoff);
         resolve_from_counters(&wc, base)
     } else {
         resolve_from_counters(&sop.counters, base)
@@ -1315,5 +1383,110 @@ mod tests {
             .as_u64()
             .unwrap();
         assert_eq!(hic_7d, 1);
+    }
+
+    // ── Windowed MetricsProvider tests (ampersona-gates feature) ──
+
+    #[test]
+    fn get_metric_windowed_7d_matches_suffix() {
+        let c = SopMetricsCollector::new();
+        let run = make_run(
+            "r1",
+            "test-sop",
+            SopRunStatus::Completed,
+            2,
+            vec![
+                make_step(1, SopStepStatus::Completed),
+                make_step(2, SopStepStatus::Completed),
+            ],
+        );
+        c.record_run_complete(&run);
+
+        let suffix_val = c.get_metric_value("sop.completion_rate_7d");
+        let windowed_val = c.get_metric_value_windowed(
+            "sop.completion_rate",
+            &std::time::Duration::from_secs(7 * 86400),
+        );
+        assert_eq!(suffix_val, windowed_val);
+    }
+
+    #[test]
+    fn get_metric_windowed_custom_duration() {
+        let c = SopMetricsCollector::new();
+        // Record one recent run
+        let run = make_run(
+            "r1",
+            "test-sop",
+            SopRunStatus::Completed,
+            1,
+            vec![make_step(1, SopStepStatus::Completed)],
+        );
+        c.record_run_complete(&run);
+
+        // Inject an old run (20 days ago)
+        {
+            let mut state = c.inner.write().unwrap();
+            let old_snap = RunSnapshot {
+                completed_at: Utc::now() - chrono::Duration::days(20),
+                terminal_status: SopRunStatus::Completed,
+                steps_executed: 1,
+                steps_defined: 1,
+                steps_failed: 0,
+                steps_skipped: 0,
+                human_approval_count: 0,
+                timeout_approval_count: 0,
+            };
+            state.global.recent_runs.push_back(old_snap);
+        }
+
+        // 14-day window: only the recent run
+        let val = c
+            .get_metric_value_windowed(
+                "sop.runs_completed",
+                &std::time::Duration::from_secs(14 * 86400),
+            )
+            .unwrap()
+            .as_u64()
+            .unwrap();
+        assert_eq!(val, 1);
+
+        // 30-day window: both runs
+        let val = c
+            .get_metric_value_windowed(
+                "sop.runs_completed",
+                &std::time::Duration::from_secs(30 * 86400),
+            )
+            .unwrap()
+            .as_u64()
+            .unwrap();
+        assert_eq!(val, 2);
+    }
+
+    #[cfg(feature = "ampersona-gates")]
+    #[test]
+    fn get_metric_provider_window_propagation() {
+        use ampersona_core::traits::{MetricQuery, MetricsProvider};
+
+        let c = SopMetricsCollector::new();
+        let run = make_run(
+            "r1",
+            "test-sop",
+            SopRunStatus::Completed,
+            1,
+            vec![make_step(1, SopStepStatus::Completed)],
+        );
+        c.record_run_complete(&run);
+
+        // Query with window via MetricsProvider trait
+        let query = MetricQuery {
+            name: "sop.runs_completed".into(),
+            window: Some(std::time::Duration::from_secs(7 * 86400)),
+        };
+        let sample = c.get_metric(&query).unwrap();
+        assert_eq!(sample.value, json!(1u64));
+
+        // Same result as suffix-based query
+        let suffix_val = c.get_metric_value("sop.runs_completed_7d");
+        assert_eq!(Some(sample.value), suffix_val);
     }
 }

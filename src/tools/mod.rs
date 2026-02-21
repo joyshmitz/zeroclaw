@@ -104,6 +104,8 @@ use crate::memory::Memory;
 use crate::runtime::{NativeRuntime, RuntimeAdapter};
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
+#[cfg(feature = "ampersona-gates")]
+use crate::sop::GateEvalState;
 use crate::sop::{SopEngine, SopMetricsCollector};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -212,6 +214,10 @@ pub fn all_tools(
         root_config,
         sop_engine,
         sop_collector,
+        #[cfg(feature = "ampersona-gates")]
+        None,
+        #[cfg(not(feature = "ampersona-gates"))]
+        None,
     )
 }
 
@@ -241,6 +247,8 @@ pub fn all_tools_with_runtime(
     root_config: &crate::config::Config,
     sop_engine: Option<Arc<Mutex<SopEngine>>>,
     sop_collector: Option<Arc<SopMetricsCollector>>,
+    #[cfg(feature = "ampersona-gates")] sop_gate_eval: Option<Arc<GateEvalState>>,
+    #[cfg(not(feature = "ampersona-gates"))] _sop_gate_eval: Option<()>,
 ) -> Vec<Box<dyn Tool>> {
     let mut tool_arcs: Vec<Arc<dyn Tool>> = vec![
         Arc::new(ShellTool::new(security.clone(), runtime)),
@@ -382,6 +390,10 @@ pub fn all_tools_with_runtime(
         let mut status = SopStatusTool::new(engine.clone());
         if let Some(ref collector) = sop_collector {
             status = status.with_collector(Arc::clone(collector));
+        }
+        #[cfg(feature = "ampersona-gates")]
+        if let Some(ref gate_eval) = sop_gate_eval {
+            status = status.with_gate_eval(Arc::clone(gate_eval));
         }
         tool_arcs.push(Arc::new(status));
         let mut approve = SopApproveTool::new(engine.clone()).with_audit(audit.clone());

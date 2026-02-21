@@ -119,6 +119,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ampersona-engine"
+version = "1.0.0"
+dependencies = [
+ "ampersona-core",
+ "anyhow",
+ "chrono",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9437,6 +9450,7 @@ name = "zeroclaw"
 version = "0.1.6"
 dependencies = [
  "ampersona-core",
+ "ampersona-engine",
  "anyhow",
  "async-imap",
  "async-trait",

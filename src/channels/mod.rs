@@ -3037,6 +3037,10 @@ pub async fn start_channels(config: Config) -> Result<()> {
         &config,
         None, // channel — SOP engine created internally if needed
         None, // channel — no SOP metrics collector
+        #[cfg(feature = "ampersona-gates")]
+        None, // channel — no gate evaluation state wiring
+        #[cfg(not(feature = "ampersona-gates"))]
+        None,
     ));
 
     let skills = crate::skills::load_skills_with_config(&workspace, &config);

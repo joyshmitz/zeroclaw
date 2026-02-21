@@ -51,6 +51,28 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
         } else {
             None
         };
+    #[cfg(feature = "ampersona-gates")]
+    let gate_eval: Option<Arc<crate::sop::GateEvalState>> = if let Some(ref mem) = sop_memory {
+        match crate::sop::GateEvalState::rebuild_from_memory(
+            Arc::clone(mem),
+            "zeroclaw",
+            config.sop.gates_file.as_deref().map(std::path::Path::new),
+            config.sop.gate_eval_interval_secs,
+        )
+        .await
+        {
+            Ok(g) => Some(Arc::new(g)),
+            Err(e) => {
+                tracing::warn!("Gate eval warm-start failed: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    #[cfg(not(feature = "ampersona-gates"))]
+    let gate_eval: Option<()> = None;
+
     let sop_cron_cache: Option<SopCronCache> = sop_engine.as_ref().map(SopCronCache::from_engine);
 
     let mut handles: Vec<JoinHandle<()>> = vec![spawn_state_writer(config.clone())];
@@ -115,6 +137,7 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
         let audit_for_sched = sop_audit.clone();
         let cache_for_sched = sop_cron_cache.clone();
         let collector_for_sched = sop_collector.clone();
+        let gate_eval_for_sched = gate_eval.clone();
         handles.push(spawn_component_supervisor(
             "scheduler",
             initial_backoff,
@@ -125,8 +148,9 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
                 let audit = audit_for_sched.clone();
                 let cache = cache_for_sched.clone();
                 let collector = collector_for_sched.clone();
+                let ge = gate_eval_for_sched.clone();
                 async move {
-                    crate::cron::scheduler::run(cfg, engine, audit, cache, collector).await
+                    crate::cron::scheduler::run(cfg, engine, audit, cache, collector, ge).await
                 }
             },
         ));

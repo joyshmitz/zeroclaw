@@ -2688,6 +2688,27 @@ pub async fn run(
         None
     };
 
+    // Gate evaluation state (standalone mode — creates its own instance)
+    #[cfg(feature = "ampersona-gates")]
+    let gate_eval: Option<Arc<crate::sop::GateEvalState>> = if sop_engine.is_some() {
+        match crate::sop::GateEvalState::rebuild_from_memory(
+            mem.clone(),
+            "zeroclaw",
+            config.sop.gates_file.as_deref().map(std::path::Path::new),
+            config.sop.gate_eval_interval_secs,
+        )
+        .await
+        {
+            Ok(g) => Some(Arc::new(g)),
+            Err(e) => {
+                tracing::warn!("Gate eval warm-start failed: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let mut tools_registry = tools::all_tools_with_runtime(
         Arc::new(config.clone()),
         &security,
@@ -2703,6 +2724,10 @@ pub async fn run(
         &config,
         sop_engine.clone(),
         sop_collector.clone(),
+        #[cfg(feature = "ampersona-gates")]
+        gate_eval.clone(),
+        #[cfg(not(feature = "ampersona-gates"))]
+        None,
     );
 
     let peripheral_tools: Vec<Box<dyn Tool>> =
@@ -3031,6 +3056,25 @@ pub async fn run(
                 }
             }
 
+            // Gate evaluation tick
+            #[cfg(feature = "ampersona-gates")]
+            if let (Some(ref ge), Some(ref collector)) = (&gate_eval, &sop_collector) {
+                if let Some(record) = ge.tick(collector.as_ref()) {
+                    if let Some(ref audit) = sop_audit {
+                        if let Err(e) = audit.log_gate_decision(&record).await {
+                            tracing::warn!(
+                                gate_id = %record.gate_id,
+                                error = %e,
+                                "failed to log gate decision"
+                            );
+                        }
+                    }
+                    if let Err(e) = ge.persist().await {
+                        tracing::warn!(error = %e, "failed to persist gate phase state");
+                    }
+                }
+            }
+
             let user_input = input.trim().to_string();
             if user_input.is_empty() {
                 continue;
@@ -3217,6 +3261,10 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         &config,
         None, // one-shot — no SOP timeout polling needed
         None, // one-shot — no SOP metrics collector
+        #[cfg(feature = "ampersona-gates")]
+        None, // one-shot — no gate evaluation state
+        #[cfg(not(feature = "ampersona-gates"))]
+        None,
     );
     let peripheral_tools: Vec<Box<dyn Tool>> =
         crate::peripherals::create_peripheral_tools(&config.peripherals).await?;

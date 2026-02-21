@@ -79,7 +79,15 @@ Last refreshed: **February 18, 2026**.
 - [ci-map.md](ci-map.md)
 - [actions-source-policy.md](actions-source-policy.md)
 
-### 7) Project Status & Snapshot
+### 7) Standard Operating Procedures (SOP)
+
+- [sop/README.md](sop/README.md)
+- [sop/connectivity.md](sop/connectivity.md)
+- [sop/syntax.md](sop/syntax.md)
+- [sop/observability.md](sop/observability.md)
+- [sop/cookbook.md](sop/cookbook.md)
+
+### 8) Project Status & Snapshot
 
 - [project/README.md](project/README.md)
 - [project-triage-snapshot-2026-02-18.md](project-triage-snapshot-2026-02-18.md)

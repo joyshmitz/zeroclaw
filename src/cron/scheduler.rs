@@ -20,12 +20,15 @@ const MIN_POLL_SECONDS: u64 = 5;
 const SHELL_JOB_TIMEOUT_SECS: u64 = 120;
 const SCHEDULER_COMPONENT: &str = "scheduler";
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     config: Config,
     sop_engine: Option<Arc<Mutex<crate::sop::SopEngine>>>,
     sop_audit: Option<Arc<crate::sop::SopAuditLogger>>,
     sop_cron_cache: Option<SopCronCache>,
     sop_collector: Option<Arc<crate::sop::SopMetricsCollector>>,
+    #[cfg(feature = "ampersona-gates")] gate_eval: Option<Arc<crate::sop::GateEvalState>>,
+    #[cfg(not(feature = "ampersona-gates"))] _gate_eval: Option<()>,
 ) -> Result<()> {
     let poll_secs = config.reliability.scheduler_poll_secs.max(MIN_POLL_SECONDS);
     let mut interval = time::interval(Duration::from_secs(poll_secs));
@@ -120,6 +123,25 @@ pub async fn run(
             if let Some(ref collector) = sop_collector {
                 for run in &audit_runs {
                     collector.record_timeout_auto_approve(&run.sop_name, &run.run_id);
+                }
+            }
+        }
+
+        // Gate evaluation tick
+        #[cfg(feature = "ampersona-gates")]
+        if let (Some(ref ge), Some(ref collector)) = (&gate_eval, &sop_collector) {
+            if let Some(record) = ge.tick(collector.as_ref()) {
+                if let Some(ref audit) = sop_audit {
+                    if let Err(e) = audit.log_gate_decision(&record).await {
+                        tracing::warn!(
+                            gate_id = %record.gate_id,
+                            error = %e,
+                            "failed to log gate decision"
+                        );
+                    }
+                }
+                if let Err(e) = ge.persist().await {
+                    tracing::warn!(error = %e, "failed to persist gate phase state");
                 }
             }
         }

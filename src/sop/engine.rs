@@ -37,7 +37,11 @@ impl SopEngine {
 
     /// Load/reload SOPs from the configured directory.
     pub fn reload(&mut self, workspace_dir: &Path) {
-        self.sops = load_sops(workspace_dir, self.config.sops_dir.as_deref());
+        self.sops = load_sops(
+            workspace_dir,
+            self.config.sops_dir.as_deref(),
+            self.config.default_execution_mode,
+        );
         info!("SOP engine loaded {} SOPs", self.sops.len());
     }
 

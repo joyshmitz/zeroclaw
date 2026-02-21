@@ -173,6 +173,7 @@ wa-rs-tokio-transport = { version = "0.2", optional = true, default-features = f
 # Gate metrics integration (dev-only path dep — replace with git or version dep before merge to main)
 # Requires sibling repos: ../ampersona, ../toon_rust (transitive via ampersona-core → tru)
 ampersona-core = { path = "../ampersona/crates/ampersona-core", optional = true }
+ampersona-engine = { path = "../ampersona/crates/ampersona-engine", optional = true }
 
 # Raspberry Pi GPIO / Landlock (Linux only) — target-specific to avoid compile failure on macOS
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -208,7 +209,7 @@ rag-pdf = ["dep:pdf-extract"]
 whatsapp-web = ["dep:wa-rs", "dep:wa-rs-core", "dep:wa-rs-binary", "dep:wa-rs-proto", "dep:wa-rs-ureq-http", "dep:wa-rs-tokio-transport", "dep:serde-big-array", "dep:prost"]
 
 # Ampersona gate metrics integration
-ampersona-gates = ["dep:ampersona-core"]
+ampersona-gates = ["dep:ampersona-core", "dep:ampersona-engine"]
 
 [profile.release]
 opt-level = "z"      # Optimize for size

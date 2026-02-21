@@ -395,6 +395,10 @@ pub async fn run_gateway(
         &config,
         sop_engine.clone(),
         None, // gateway — no SOP metrics collector
+        #[cfg(feature = "ampersona-gates")]
+        None, // gateway — no gate evaluation state wiring
+        #[cfg(not(feature = "ampersona-gates"))]
+        None,
     );
     let tools_registry: Arc<Vec<ToolSpec>> =
         Arc::new(tools_registry_raw.iter().map(|t| t.spec()).collect());

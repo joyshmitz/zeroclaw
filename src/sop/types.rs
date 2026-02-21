@@ -154,7 +154,7 @@ pub(crate) struct SopMeta {
     #[serde(default)]
     pub priority: SopPriority,
     #[serde(default)]
-    pub execution_mode: SopExecutionMode,
+    pub execution_mode: Option<SopExecutionMode>,
     #[serde(default = "default_cooldown_secs")]
     pub cooldown_secs: u64,
     #[serde(default = "default_max_concurrent")]
@@ -404,7 +404,7 @@ path = "/sop/test"
         assert_eq!(manifest.sop.name, "test-sop");
         assert_eq!(manifest.triggers.len(), 2);
         assert_eq!(manifest.sop.priority, SopPriority::Normal);
-        assert_eq!(manifest.sop.execution_mode, SopExecutionMode::Supervised);
+        assert_eq!(manifest.sop.execution_mode, None);
     }
 
     #[test]

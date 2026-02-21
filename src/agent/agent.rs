@@ -274,6 +274,10 @@ impl Agent {
             config,
             None, // agent struct — SOP engine created internally if needed
             None, // agent struct — no SOP metrics collector
+            #[cfg(feature = "ampersona-gates")]
+            None, // agent struct — no gate evaluation state wiring
+            #[cfg(not(feature = "ampersona-gates"))]
+            None,
         );
 
         let provider_name = config.default_provider.as_deref().unwrap_or("openrouter");

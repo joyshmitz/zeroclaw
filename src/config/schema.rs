@@ -398,6 +398,17 @@ pub struct SopConfig {
     /// Oldest runs are evicted when the limit is exceeded (0 = unlimited).
     #[serde(default = "default_sop_max_finished_runs")]
     pub max_finished_runs: usize,
+
+    /// Path to ampersona persona file with gate definitions.
+    /// If not set, no gates are loaded and gate evaluation is a no-op.
+    /// Only effective with `ampersona-gates` feature.
+    #[serde(default)]
+    pub gates_file: Option<String>,
+
+    /// Gate evaluation tick interval in seconds. 0 = gate evaluation disabled
+    /// (no ticks will fire). Only effective with `ampersona-gates` feature.
+    #[serde(default = "default_gate_eval_interval_secs")]
+    pub gate_eval_interval_secs: u64,
 }
 
 fn default_sop_max_concurrent_total() -> usize {
@@ -412,6 +423,10 @@ fn default_sop_max_finished_runs() -> usize {
     1000
 }
 
+fn default_gate_eval_interval_secs() -> u64 {
+    60
+}
+
 impl Default for SopConfig {
     fn default() -> Self {
         Self {
@@ -421,6 +436,8 @@ impl Default for SopConfig {
             max_concurrent_total: default_sop_max_concurrent_total(),
             approval_timeout_secs: default_sop_approval_timeout_secs(),
             max_finished_runs: default_sop_max_finished_runs(),
+            gates_file: None,
+            gate_eval_interval_secs: default_gate_eval_interval_secs(),
         }
     }
 }
