@@ -87,6 +87,7 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
         let gateway_host = host.clone();
         let engine_for_gw = sop_engine.clone();
         let audit_for_gw = sop_audit.clone();
+        let collector_for_gw = sop_collector.clone();
         handles.push(spawn_component_supervisor(
             "gateway",
             initial_backoff,
@@ -96,7 +97,10 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
                 let host = gateway_host.clone();
                 let engine = engine_for_gw.clone();
                 let audit = audit_for_gw.clone();
-                async move { crate::gateway::run_gateway(&host, port, cfg, engine, audit).await }
+                let collector = collector_for_gw.clone();
+                async move {
+                    crate::gateway::run_gateway(&host, port, cfg, engine, audit, collector).await
+                }
             },
         ));
     }

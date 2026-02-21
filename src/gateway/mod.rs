@@ -39,6 +39,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
+use tracing::Instrument;
 use uuid::Uuid;
 
 /// Maximum request body size (64KB) — prevents memory exhaustion
@@ -307,6 +308,8 @@ pub struct AppState {
     pub sop_engine: Option<Arc<std::sync::Mutex<crate::sop::SopEngine>>>,
     /// SOP audit logger (if SOP is enabled)
     pub sop_audit: Option<Arc<crate::sop::SopAuditLogger>>,
+    /// SOP metrics collector (if SOP is enabled)
+    pub sop_collector: Option<Arc<crate::sop::SopMetricsCollector>>,
 }
 
 /// Run the HTTP gateway using axum with proper HTTP/1.1 compliance.
@@ -317,6 +320,7 @@ pub async fn run_gateway(
     config: Config,
     sop_engine: Option<Arc<std::sync::Mutex<crate::sop::SopEngine>>>,
     sop_audit: Option<Arc<crate::sop::SopAuditLogger>>,
+    sop_collector: Option<Arc<crate::sop::SopMetricsCollector>>,
 ) -> Result<()> {
     // ── Security: refuse public bind without tunnel or explicit opt-in ──
     if is_public_bind(host) && config.tunnel.provider == "none" && !config.gateway.allow_public_bind
@@ -394,7 +398,7 @@ pub async fn run_gateway(
         config.api_key.as_deref(),
         &config,
         sop_engine.clone(),
-        None, // gateway — no SOP metrics collector
+        sop_collector.clone(),
         #[cfg(feature = "ampersona-gates")]
         None, // gateway — no gate evaluation state wiring
         #[cfg(not(feature = "ampersona-gates"))]
@@ -639,6 +643,7 @@ pub async fn run_gateway(
         event_tx,
         sop_engine,
         sop_audit,
+        sop_collector,
     };
 
     // Config PUT needs larger body limit (1MB)
@@ -975,11 +980,14 @@ async fn handle_webhook(
             // Spawn dispatch asynchronously — audit I/O runs in background
             let engine = Arc::clone(engine);
             let audit = Arc::clone(audit);
-            tokio::spawn(async move {
-                let results =
-                    crate::sop::dispatch::dispatch_sop_event(&engine, &audit, event).await;
-                crate::sop::dispatch::process_headless_results(&results).await;
-            });
+            tokio::spawn(
+                async move {
+                    let results =
+                        crate::sop::dispatch::dispatch_sop_event(&engine, &audit, event).await;
+                    crate::sop::dispatch::process_headless_results(&results).await;
+                }
+                .instrument(tracing::info_span!("sop_dispatch", source = "webhook")),
+            );
             let body = serde_json::json!({
                 "status": "accepted",
                 "matched_sops": matched_names,
@@ -1208,11 +1216,14 @@ async fn handle_sop_webhook(
         if !matched_names.is_empty() {
             let engine = Arc::clone(engine);
             let audit = Arc::clone(audit);
-            tokio::spawn(async move {
-                let results =
-                    crate::sop::dispatch::dispatch_sop_event(&engine, &audit, event).await;
-                crate::sop::dispatch::process_headless_results(&results).await;
-            });
+            tokio::spawn(
+                async move {
+                    let results =
+                        crate::sop::dispatch::dispatch_sop_event(&engine, &audit, event).await;
+                    crate::sop::dispatch::process_headless_results(&results).await;
+                }
+                .instrument(tracing::info_span!("sop_dispatch", source = "sop_webhook")),
+            );
             let body = serde_json::json!({
                 "status": "accepted",
                 "matched_sops": matched_names,
@@ -1687,6 +1698,7 @@ mod tests {
             event_tx: tokio::sync::broadcast::channel(16).0,
             sop_engine: None,
             sop_audit: None,
+            sop_collector: None,
         };
 
         let response = handle_metrics(State(state)).await.into_response();
@@ -1737,6 +1749,7 @@ mod tests {
             event_tx: tokio::sync::broadcast::channel(16).0,
             sop_engine: None,
             sop_audit: None,
+            sop_collector: None,
         };
 
         let response = handle_metrics(State(state)).await.into_response();
@@ -2108,6 +2121,7 @@ mod tests {
             event_tx: tokio::sync::broadcast::channel(16).0,
             sop_engine: None,
             sop_audit: None,
+            sop_collector: None,
         };
 
         let mut headers = HeaderMap::new();
@@ -2174,6 +2188,7 @@ mod tests {
             event_tx: tokio::sync::broadcast::channel(16).0,
             sop_engine: None,
             sop_audit: None,
+            sop_collector: None,
         };
 
         let headers = HeaderMap::new();
@@ -2258,6 +2273,7 @@ mod tests {
             event_tx: tokio::sync::broadcast::channel(16).0,
             sop_engine: None,
             sop_audit: None,
+            sop_collector: None,
         };
 
         let response = handle_webhook(
@@ -2308,6 +2324,7 @@ mod tests {
             event_tx: tokio::sync::broadcast::channel(16).0,
             sop_engine: None,
             sop_audit: None,
+            sop_collector: None,
         };
 
         let mut headers = HeaderMap::new();
@@ -2363,6 +2380,7 @@ mod tests {
             event_tx: tokio::sync::broadcast::channel(16).0,
             sop_engine: None,
             sop_audit: None,
+            sop_collector: None,
         };
 
         let mut headers = HeaderMap::new();
@@ -2927,6 +2945,7 @@ mod tests {
             observer: Arc::new(crate::observability::NoopObserver),
             sop_engine: Some(sop_engine),
             sop_audit: Some(audit),
+            sop_collector: None,
         }
     }
 
@@ -2994,6 +3013,7 @@ mod tests {
             observer: Arc::new(crate::observability::NoopObserver),
             sop_engine: None,
             sop_audit: None,
+            sop_collector: None,
         };
         let headers = HeaderMap::new();
         let body = Ok(Json(WebhookBody {

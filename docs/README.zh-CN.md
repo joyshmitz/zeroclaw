@@ -19,8 +19,10 @@
 | 使用 LangGraph 工具调用集成 | [langgraph-integration.md](langgraph-integration.md) |
 | 进行日常运维（runbook） | [operations-runbook.md](operations-runbook.md) |
 | 快速排查安装/运行问题 | [troubleshooting.md](troubleshooting.md) |
+| 开始新的编码会话（上下文模板） | [project/session-context-template.md](project/session-context-template.md) |
+| 配置 Matrix 加密聊天室 | [matrix-e2ee-guide.md](matrix-e2ee-guide.md) |
 | 统一目录导航 | [SUMMARY.md](SUMMARY.md) |
-| 查看 PR/Issue 扫描快照 | [project-triage-snapshot-2026-02-18.md](project-triage-snapshot-2026-02-18.md) |
+| 查看项目状态与 SOP 基础计划 | [project/README.md](project/README.md) |
 
 ## 10 秒决策树（先看这个）
 

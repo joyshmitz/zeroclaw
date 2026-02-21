@@ -19,8 +19,10 @@
 | Использовать интеграцию LangGraph | [langgraph-integration.md](langgraph-integration.md) |
 | Операционный runbook (day-2) | [operations-runbook.md](operations-runbook.md) |
 | Быстро устранить типовые проблемы | [troubleshooting.md](troubleshooting.md) |
+| Начать сессию разработки (шаблон контекста) | [project/session-context-template.md](project/session-context-template.md) |
+| Настроить Matrix E2EE | [matrix-e2ee-guide.md](matrix-e2ee-guide.md) |
 | Открыть общий TOC docs | [SUMMARY.md](SUMMARY.md) |
-| Посмотреть snapshot PR/Issue | [project-triage-snapshot-2026-02-18.md](project-triage-snapshot-2026-02-18.md) |
+| Посмотреть статус проекта и план SOP | [project/README.md](project/README.md) |
 
 ## Дерево решений на 10 секунд
 
