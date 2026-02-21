@@ -2682,7 +2682,7 @@ fn default_mqtt_keep_alive() -> u64 {
 ///
 /// This is NOT a conversation channel — MQTT messages are routed
 /// to the SOP engine, not to the agent loop.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct MqttConfig {
     /// Broker URL, e.g. "mqtt://localhost:1883"
     pub broker_url: String,
@@ -5597,7 +5597,6 @@ channel_id = "C123"
             nostr: None,
             clawdtalk: None,
             message_timeout_secs: 300,
-            mqtt: None,
             mqtt: None,
         };
         let toml_str = toml::to_string_pretty(&c).unwrap();

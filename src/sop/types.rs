@@ -1,3 +1,4 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::PathBuf;
@@ -29,7 +30,7 @@ impl fmt::Display for SopPriority {
 // ── Execution Mode ──────────────────────────────────────────────
 
 /// How much autonomy the agent has when executing an SOP.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SopExecutionMode {
     /// Execute all steps without human approval.

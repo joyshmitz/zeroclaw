@@ -103,10 +103,10 @@ use crate::config::{Config, DelegateAgentConfig};
 use crate::memory::Memory;
 use crate::runtime::{NativeRuntime, RuntimeAdapter};
 use crate::security::SecurityPolicy;
-use async_trait::async_trait;
 #[cfg(feature = "ampersona-gates")]
 use crate::sop::GateEvalState;
 use crate::sop::{SopEngine, SopMetricsCollector};
+use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -265,7 +265,7 @@ pub fn all_tools_with_runtime(
         Arc::new(CronRunsTool::new(config.clone())),
         Arc::new(MemoryStoreTool::new(memory.clone(), security.clone())),
         Arc::new(MemoryRecallTool::new(memory.clone())),
-        Arc::new(MemoryForgetTool::new(memory, security.clone())),
+        Arc::new(MemoryForgetTool::new(memory.clone(), security.clone())),
         Arc::new(ScheduleTool::new(security.clone(), root_config.clone())),
         Arc::new(ModelRoutingConfigTool::new(
             config.clone(),
