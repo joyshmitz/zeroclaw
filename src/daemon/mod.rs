@@ -28,12 +28,16 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
     // ── Shared SOP resources (single engine for all components) ──
     let sop_engine: Option<Arc<Mutex<crate::sop::SopEngine>>> =
         crate::tools::create_sop_engine(&config.sop, &config.workspace_dir);
-    let sop_memory: Option<Arc<dyn crate::memory::traits::Memory>> =
-        sop_engine.as_ref().and_then(|_| {
-            crate::memory::create_memory(&config.memory, &config.workspace_dir, None)
-                .ok()
-                .map(|m| Arc::from(m) as Arc<dyn crate::memory::traits::Memory>)
-        });
+    let sop_memory: Option<Arc<dyn crate::memory::traits::Memory>> = if sop_engine.is_some() {
+        let mem = crate::memory::create_memory(&config.memory, &config.workspace_dir, None)
+            .map_err(|e| {
+                tracing::error!("SOP enabled but memory backend init failed: {e}");
+                anyhow::anyhow!("SOP requires a working memory backend but init failed: {e}")
+            })?;
+        Some(Arc::from(mem) as Arc<dyn crate::memory::traits::Memory>)
+    } else {
+        None
+    };
     let sop_audit: Option<Arc<crate::sop::SopAuditLogger>> = sop_memory
         .as_ref()
         .map(|m| Arc::new(crate::sop::SopAuditLogger::new(Arc::clone(m))));
@@ -137,6 +141,8 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
         let audit_for_sched = sop_audit.clone();
         let cache_for_sched = sop_cron_cache.clone();
         let collector_for_sched = sop_collector.clone();
+        // gate_eval is Option<Arc<_>> with ampersona-gates, Option<()> without
+        #[allow(clippy::clone_on_copy)]
         let gate_eval_for_sched = gate_eval.clone();
         handles.push(spawn_component_supervisor(
             "scheduler",
@@ -148,6 +154,7 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
                 let audit = audit_for_sched.clone();
                 let cache = cache_for_sched.clone();
                 let collector = collector_for_sched.clone();
+                #[allow(clippy::clone_on_copy)]
                 let ge = gate_eval_for_sched.clone();
                 async move {
                     crate::cron::scheduler::run(cfg, engine, audit, cache, collector, ge).await

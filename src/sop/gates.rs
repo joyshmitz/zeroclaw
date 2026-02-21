@@ -355,7 +355,7 @@ mod tests {
         // Force past interval
         {
             let mut inner = ge.inner.lock().unwrap();
-            inner.last_tick = Instant::now() - Duration::from_secs(10);
+            inner.last_tick = Instant::now().checked_sub(Duration::from_secs(10)).unwrap();
         }
         assert!(ge.tick(&metrics).is_none());
     }
@@ -374,7 +374,7 @@ mod tests {
         let metrics = MockMetrics::new(vec![("sop.completion_rate", json!(0.9))]);
         {
             let mut inner = ge.inner.lock().unwrap();
-            inner.last_tick = Instant::now() - Duration::from_secs(10);
+            inner.last_tick = Instant::now().checked_sub(Duration::from_secs(10)).unwrap();
         }
         let record = ge.tick(&metrics);
         assert!(record.is_some());
@@ -397,7 +397,7 @@ mod tests {
         let metrics = MockMetrics::new(vec![("sop.completion_rate", json!(0.95))]);
         {
             let mut inner = ge.inner.lock().unwrap();
-            inner.last_tick = Instant::now() - Duration::from_secs(10);
+            inner.last_tick = Instant::now().checked_sub(Duration::from_secs(10)).unwrap();
         }
         ge.tick(&metrics);
 
@@ -422,7 +422,7 @@ mod tests {
         let metrics = MockMetrics::new(vec![("sop.completion_rate", json!(0.95))]);
         {
             let mut inner = ge.inner.lock().unwrap();
-            inner.last_tick = Instant::now() - Duration::from_secs(10);
+            inner.last_tick = Instant::now().checked_sub(Duration::from_secs(10)).unwrap();
         }
         let record = ge.tick(&metrics);
         assert!(record.is_some());
@@ -448,7 +448,7 @@ mod tests {
         let metrics = MockMetrics::new(vec![("sop.completion_rate", json!(0.95))]);
         {
             let mut inner = ge.inner.lock().unwrap();
-            inner.last_tick = Instant::now() - Duration::from_secs(10);
+            inner.last_tick = Instant::now().checked_sub(Duration::from_secs(10)).unwrap();
         }
         let record = ge.tick(&metrics);
         assert!(record.is_some());
@@ -520,7 +520,7 @@ mod tests {
         let metrics = MockMetrics::new(vec![("sop.completion_rate", json!(0.95))]);
         {
             let mut inner = ge.inner.lock().unwrap();
-            inner.last_tick = Instant::now() - Duration::from_secs(10);
+            inner.last_tick = Instant::now().checked_sub(Duration::from_secs(10)).unwrap();
         }
         ge.tick(&metrics);
         ge.persist().await.unwrap();
@@ -593,7 +593,7 @@ mod tests {
         ]);
         {
             let mut inner = ge.inner.lock().unwrap();
-            inner.last_tick = Instant::now() - Duration::from_secs(10);
+            inner.last_tick = Instant::now().checked_sub(Duration::from_secs(10)).unwrap();
         }
         let record = ge.tick(&metrics).unwrap();
         // Demote should fire first (evaluator sorts demote before promote)
@@ -617,7 +617,7 @@ mod tests {
         // First tick — fires
         {
             let mut inner = ge.inner.lock().unwrap();
-            inner.last_tick = Instant::now() - Duration::from_secs(10);
+            inner.last_tick = Instant::now().checked_sub(Duration::from_secs(10)).unwrap();
         }
         let first = ge.tick(&metrics);
         assert!(first.is_some());
@@ -626,7 +626,7 @@ mod tests {
         // (evaluator idempotency via metrics_hash + state_rev)
         {
             let mut inner = ge.inner.lock().unwrap();
-            inner.last_tick = Instant::now() - Duration::from_secs(10);
+            inner.last_tick = Instant::now().checked_sub(Duration::from_secs(10)).unwrap();
         }
         let second = ge.tick(&metrics);
         assert!(second.is_none());
@@ -678,7 +678,7 @@ mod tests {
         let ge = GateEvalState::new("test-agent", vec![gate], 1, mem);
         {
             let mut inner = ge.inner.lock().unwrap();
-            inner.last_tick = Instant::now() - Duration::from_secs(10);
+            inner.last_tick = Instant::now().checked_sub(Duration::from_secs(10)).unwrap();
         }
         let record = ge.tick(&collector);
         assert!(record.is_some());
