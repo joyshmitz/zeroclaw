@@ -50,7 +50,7 @@ shellexpand = "3.1"
 schemars = "1.2"
 
 # Logging - minimal
-tracing = { version = "0.1", default-features = false }
+tracing = { version = "0.1", default-features = false, features = ["std", "attributes"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "ansi", "env-filter", "chrono"] }
 
 # Observability - Prometheus metrics
@@ -137,6 +137,9 @@ which = "8.0"
 # Temporary directory creation (for self-update)
 tempfile = "3.14"
 
+# MQTT event bus
+rumqttc = "0.24"
+
 # WebSocket client channels (Discord/Lark/DingTalk/Nostr)
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
@@ -206,6 +209,11 @@ wa-rs-binary = { version = "0.2", optional = true, default-features = false }
 wa-rs-proto = { version = "0.2", optional = true, default-features = false }
 wa-rs-ureq-http = { version = "0.2", optional = true }
 wa-rs-tokio-transport = { version = "0.2", optional = true, default-features = false }
+
+# Gate metrics integration (dev-only path dep — replace with git or version dep before merge to main)
+# Requires sibling repos: ../ampersona, ../toon_rust (transitive via ampersona-core → tru)
+ampersona-core = { path = "../ampersona/crates/ampersona-core", optional = true }
+ampersona-engine = { path = "../ampersona/crates/ampersona-engine", optional = true }
 
 # Raspberry Pi GPIO / Landlock (Linux only) — target-specific to avoid compile failure on macOS
 [target.'cfg(target_os = "linux")'.dependencies]

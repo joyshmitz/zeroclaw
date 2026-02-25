@@ -32,7 +32,6 @@ Last refreshed: **February 28, 2026**.
 ### 1) Getting Started
 
 - [getting-started/README.md](getting-started/README.md)
-- [getting-started/macos-update-uninstall.md](getting-started/macos-update-uninstall.md)
 - [one-click-bootstrap.md](one-click-bootstrap.md)
 - [docker-setup.md](docker-setup.md)
 - [android-setup.md](android-setup.md)
@@ -110,6 +109,8 @@ Last refreshed: **February 28, 2026**.
 
 - [project/README.md](project/README.md)
 - [project-triage-snapshot-2026-02-18.md](project-triage-snapshot-2026-02-18.md)
+- [project/sop-foundation-plan-2026-02-19.md](project/sop-foundation-plan-2026-02-19.md)
+- [project/session-context-template.md](project/session-context-template.md)
 - [docs-audit-2026-02-24.md](docs-audit-2026-02-24.md)
 - [project/m4-5-rfi-spike-2026-02-28.md](project/m4-5-rfi-spike-2026-02-28.md)
 - [project/f1-3-agent-lifecycle-state-machine-rfi-2026-03-01.md](project/f1-3-agent-lifecycle-state-machine-rfi-2026-03-01.md)

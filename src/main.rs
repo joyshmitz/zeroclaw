@@ -185,7 +185,7 @@ use config::Config;
 // Re-export so binary modules can use crate::<CommandEnum> while keeping a single source of truth.
 pub use zeroclaw::{
     ChannelCommands, CronCommands, HardwareCommands, IntegrationCommands, MigrateCommands,
-    PeripheralCommands, ServiceCommands, SkillCommands,
+    PeripheralCommands, ServiceCommands, SkillCommands, SopCommands,
 };
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
@@ -562,6 +562,12 @@ Examples:
         skill_command: SkillCommands,
     },
 
+    /// Manage SOPs (standard operating procedures)
+    Sop {
+        #[command(subcommand)]
+        sop_command: SopCommands,
+    },
+
     /// Migrate data from other agent runtimes
     Migrate {
         #[command(subcommand)]
@@ -802,19 +808,6 @@ enum ModelCommands {
         #[arg(long)]
         force: bool,
     },
-    /// List cached models for a provider
-    List {
-        /// Provider name (defaults to configured default provider)
-        #[arg(long)]
-        provider: Option<String>,
-    },
-    /// Set the default model in config
-    Set {
-        /// Model name to set as default
-        model: String,
-    },
-    /// Show current model configuration and cache status
-    Status,
 }
 
 #[derive(Subcommand, Debug)]
@@ -1295,11 +1288,6 @@ async fn main() -> Result<()> {
                     onboard::run_models_refresh(&config, provider.as_deref(), force).await
                 }
             }
-            ModelCommands::List { provider } => {
-                onboard::run_models_list(&config, provider.as_deref()).await
-            }
-            ModelCommands::Set { model } => onboard::run_models_set(&config, &model).await,
-            ModelCommands::Status => onboard::run_models_status(&config).await,
         },
 
         Commands::ProvidersQuota { provider, format } => {
@@ -1382,6 +1370,8 @@ async fn main() -> Result<()> {
         } => integrations::handle_command(integration_command, &config),
 
         Commands::Skills { skill_command } => skills::handle_command(skill_command, &config),
+
+        Commands::Sop { sop_command } => sop::handle_command(sop_command, &config),
 
         Commands::Migrate { migrate_command } => {
             migration::handle_command(migrate_command, &config).await

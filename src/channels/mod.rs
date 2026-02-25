@@ -4898,7 +4898,7 @@ pub(crate) async fn handle_command(command: crate::ChannelCommands, config: &Con
             }
             if !cfg!(feature = "channel-lark") {
                 println!(
-                    "  ℹ️ Lark/Feishu channel support is disabled in this build (enable `channel-lark`)."
+                    "  ℹ️ Lark channel support is disabled in this build (enable `channel-lark`)."
                 );
             }
             println!("\nTo start channels: zeroclaw channel start");

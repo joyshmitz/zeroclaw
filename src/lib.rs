@@ -226,6 +226,23 @@ pub enum SkillCommands {
     Templates,
 }
 
+/// SOP management subcommands
+#[derive(Subcommand, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SopCommands {
+    /// List all configured SOPs
+    List,
+    /// Validate SOP definitions (all, or a specific one by name)
+    Validate {
+        /// SOP name to validate (validates all if omitted)
+        name: Option<String>,
+    },
+    /// Show detailed info about a specific SOP
+    Show {
+        /// SOP name
+        name: String,
+    },
+}
+
 /// Migration subcommands
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum MigrateCommands {

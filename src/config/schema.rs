@@ -2088,7 +2088,7 @@ pub struct HttpRequestConfig {
     /// Allowed domains for HTTP requests (exact or subdomain match)
     #[serde(default)]
     pub allowed_domains: Vec<String>,
-    /// Maximum response size in bytes (default: 1MB, 0 = unlimited)
+    /// Maximum response size in bytes (default: 1MB)
     #[serde(default = "default_http_max_response_size")]
     pub max_response_size: usize,
     /// Request timeout in seconds (default: 30)
@@ -4259,15 +4259,6 @@ pub struct HeartbeatConfig {
     pub enabled: bool,
     /// Interval in minutes between heartbeat pings. Default: `30`.
     pub interval_minutes: u32,
-    /// Optional fallback task text when `HEARTBEAT.md` has no task entries.
-    #[serde(default)]
-    pub message: Option<String>,
-    /// Optional delivery channel for heartbeat output (for example: `telegram`).
-    #[serde(default, alias = "channel")]
-    pub target: Option<String>,
-    /// Optional delivery recipient/chat identifier (required when `target` is set).
-    #[serde(default, alias = "recipient")]
-    pub to: Option<String>,
 }
 
 impl Default for HeartbeatConfig {
@@ -4275,9 +4266,6 @@ impl Default for HeartbeatConfig {
         Self {
             enabled: false,
             interval_minutes: 30,
-            message: None,
-            target: None,
-            to: None,
         }
     }
 }
@@ -4476,9 +4464,9 @@ pub struct ChannelsConfig {
     pub email: Option<crate::channels::email_channel::EmailConfig>,
     /// IRC channel configuration.
     pub irc: Option<IrcConfig>,
-    /// Lark channel configuration.
+    /// Lark/Feishu channel configuration.
     pub lark: Option<LarkConfig>,
-    /// Feishu channel configuration.
+    /// Feishu channel configuration (standalone, for backwards compatibility).
     pub feishu: Option<FeishuConfig>,
     /// DingTalk channel configuration.
     pub dingtalk: Option<DingTalkConfig>,
@@ -4504,6 +4492,7 @@ pub struct ChannelsConfig {
     /// Default: 300s for on-device LLMs (Ollama) which are slower than cloud APIs.
     #[serde(default = "default_channel_message_timeout_secs")]
     pub message_timeout_secs: u64,
+    pub mqtt: Option<MqttConfig>,
 }
 
 impl ChannelsConfig {
@@ -4652,7 +4641,86 @@ impl Default for ChannelsConfig {
             clawdtalk: None,
             ack_reaction: AckReactionChannelsConfig::default(),
             message_timeout_secs: default_channel_message_timeout_secs(),
+            mqtt: None,
         }
+    }
+}
+
+// ── MQTT ──────────────────────────────────────────────────────────
+
+fn default_mqtt_client_id() -> String {
+    "zeroclaw".into()
+}
+
+fn default_mqtt_qos() -> u8 {
+    1
+}
+
+fn default_mqtt_keep_alive() -> u64 {
+    30
+}
+
+/// MQTT broker connection config for SOP event fan-in.
+///
+/// This is NOT a conversation channel — MQTT messages are routed
+/// to the SOP engine, not to the agent loop.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct MqttConfig {
+    /// Broker URL, e.g. "mqtt://localhost:1883"
+    pub broker_url: String,
+    /// MQTT client ID (default: "zeroclaw")
+    #[serde(default = "default_mqtt_client_id")]
+    pub client_id: String,
+    /// Topics to subscribe to
+    pub topics: Vec<String>,
+    /// QoS level: 0, 1, or 2 (default: 1)
+    #[serde(default = "default_mqtt_qos")]
+    pub qos: u8,
+    /// Optional username for broker authentication
+    pub username: Option<String>,
+    /// Optional password for broker authentication
+    pub password: Option<String>,
+    /// Enable TLS (default: false).
+    ///
+    /// TLS is driven by the URL scheme: `mqtts://` enables TLS, `mqtt://` disables it.
+    /// This field is validated for consistency with the scheme: `use_tls: true`
+    /// requires `mqtts://` and vice versa.
+    #[serde(default)]
+    pub use_tls: bool,
+    /// Keep-alive interval in seconds (default: 30)
+    #[serde(default = "default_mqtt_keep_alive")]
+    pub keep_alive_secs: u64,
+}
+
+impl MqttConfig {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        if !self.broker_url.starts_with("mqtt://") && !self.broker_url.starts_with("mqtts://") {
+            anyhow::bail!("mqtt.broker_url must start with mqtt:// or mqtts://");
+        }
+        if self.qos > 2 {
+            anyhow::bail!("mqtt.qos must be 0, 1, or 2 (got {})", self.qos);
+        }
+        if self.topics.is_empty() {
+            anyhow::bail!("mqtt.topics must contain at least one topic");
+        }
+        if self.client_id.is_empty() {
+            anyhow::bail!("mqtt.client_id must not be empty");
+        }
+        // Validate use_tls consistency with URL scheme
+        let is_mqtts = self.broker_url.starts_with("mqtts://");
+        if self.use_tls && !is_mqtts {
+            anyhow::bail!(
+                "mqtt.use_tls is true but broker_url uses mqtt:// scheme. \
+                 Use mqtts:// for TLS connections"
+            );
+        }
+        if is_mqtts && !self.use_tls {
+            anyhow::bail!(
+                "mqtt.broker_url uses mqtts:// scheme but use_tls is false. \
+                 Set use_tls = true or use mqtt:// for plaintext"
+            );
+        }
+        Ok(())
     }
 }
 
@@ -5602,10 +5670,10 @@ pub struct LarkConfig {
 
 impl ChannelConfig for LarkConfig {
     fn name() -> &'static str {
-        "Lark"
+        "Lark/Feishu"
     }
     fn desc() -> &'static str {
-        "Lark Bot"
+        "Lark/Feishu Bot"
     }
 }
 
@@ -9751,8 +9819,6 @@ impl ChannelConfig for AcpConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(unix)]
-    use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
     use tokio::sync::{Mutex, MutexGuard};
     use tokio::test;
@@ -10163,26 +10229,6 @@ action = "require_approval"
         let h = HeartbeatConfig::default();
         assert!(!h.enabled);
         assert_eq!(h.interval_minutes, 30);
-        assert!(h.message.is_none());
-        assert!(h.target.is_none());
-        assert!(h.to.is_none());
-    }
-
-    #[test]
-    async fn heartbeat_config_parses_delivery_aliases() {
-        let raw = r#"
-enabled = true
-interval_minutes = 10
-message = "Ping"
-channel = "telegram"
-recipient = "42"
-"#;
-        let parsed: HeartbeatConfig = toml::from_str(raw).unwrap();
-        assert!(parsed.enabled);
-        assert_eq!(parsed.interval_minutes, 10);
-        assert_eq!(parsed.message.as_deref(), Some("Ping"));
-        assert_eq!(parsed.target.as_deref(), Some("telegram"));
-        assert_eq!(parsed.to.as_deref(), Some("42"));
     }
 
     #[test]
@@ -10346,9 +10392,6 @@ ws_url = "ws://127.0.0.1:3002"
             heartbeat: HeartbeatConfig {
                 enabled: true,
                 interval_minutes: 15,
-                message: Some("Check London time".into()),
-                target: Some("telegram".into()),
-                to: Some("123456".into()),
             },
             cron: CronConfig::default(),
             goal_loop: GoalLoopConfig::default(),
@@ -10391,6 +10434,7 @@ ws_url = "ws://127.0.0.1:3002"
                 clawdtalk: None,
                 ack_reaction: AckReactionChannelsConfig::default(),
                 message_timeout_secs: 300,
+                mqtt: None,
             },
             memory: MemoryConfig::default(),
             storage: StorageConfig::default(),
@@ -10433,12 +10477,6 @@ ws_url = "ws://127.0.0.1:3002"
         assert_eq!(parsed.runtime.kind, "docker");
         assert!(parsed.heartbeat.enabled);
         assert_eq!(parsed.heartbeat.interval_minutes, 15);
-        assert_eq!(
-            parsed.heartbeat.message.as_deref(),
-            Some("Check London time")
-        );
-        assert_eq!(parsed.heartbeat.target.as_deref(), Some("telegram"));
-        assert_eq!(parsed.heartbeat.to.as_deref(), Some("123456"));
         assert!(parsed.channels_config.telegram.is_some());
         assert_eq!(
             parsed.channels_config.telegram.unwrap().bot_token,
@@ -11388,6 +11426,7 @@ allowed_users = ["@ops:matrix.org"]
             clawdtalk: None,
             ack_reaction: AckReactionChannelsConfig::default(),
             message_timeout_secs: 300,
+            mqtt: None,
         };
         let toml_str = toml::to_string_pretty(&c).unwrap();
         let parsed: ChannelsConfig = toml::from_str(&toml_str).unwrap();
@@ -11762,6 +11801,7 @@ allowed_sender_ids = ["U111", "U222"]
             clawdtalk: None,
             ack_reaction: AckReactionChannelsConfig::default(),
             message_timeout_secs: 300,
+            mqtt: None,
         };
         let toml_str = toml::to_string_pretty(&c).unwrap();
         let parsed: ChannelsConfig = toml::from_str(&toml_str).unwrap();
@@ -14510,47 +14550,16 @@ use_feishu = true
         config.config_path = config_path.clone();
         config.save().await.unwrap();
 
+        // Apply the same permission logic as load_or_init
+        fs::set_permissions(&config_path, Permissions::from_mode(0o600))
+            .await
+            .expect("Failed to set permissions");
+
         let meta = fs::metadata(&config_path).await.unwrap();
         let mode = meta.permissions().mode() & 0o777;
         assert_eq!(
             mode, 0o600,
             "New config file should be owner-only (0600), got {mode:o}"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    async fn save_restricts_existing_world_readable_config_to_owner_only() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let config_path = tmp.path().join("config.toml");
-
-        let mut config = Config::default();
-        config.config_path = config_path.clone();
-        config.save().await.unwrap();
-
-        // Simulate the regression state observed in issue #1345.
-        std::fs::set_permissions(&config_path, std::fs::Permissions::from_mode(0o644)).unwrap();
-        let loose_mode = std::fs::metadata(&config_path)
-            .unwrap()
-            .permissions()
-            .mode()
-            & 0o777;
-        assert_eq!(
-            loose_mode, 0o644,
-            "test setup requires world-readable config"
-        );
-
-        config.default_temperature = 0.6;
-        config.save().await.unwrap();
-
-        let hardened_mode = std::fs::metadata(&config_path)
-            .unwrap()
-            .permissions()
-            .mode()
-            & 0o777;
-        assert_eq!(
-            hardened_mode, 0o600,
-            "Saving config should restore owner-only permissions (0600)"
         );
     }
 

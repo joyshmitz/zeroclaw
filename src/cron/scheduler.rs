@@ -12,11 +12,12 @@ use crate::cron::{
     update_job, CronJob, CronJobPatch, DeliveryConfig, JobType, Schedule, SessionTarget,
 };
 use crate::security::SecurityPolicy;
+use crate::sop::dispatch::SopCronCache;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use futures_util::{stream, StreamExt};
 use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::process::Command;
 use tokio::time::{self, Duration};
 
@@ -38,6 +39,7 @@ pub async fn run(config: Config) -> Result<()> {
     ));
 
     crate::health::mark_component_ok(SCHEDULER_COMPONENT);
+    let mut last_sop_cron_check = Utc::now();
 
     loop {
         interval.tick().await;
@@ -54,6 +56,95 @@ pub async fn run(config: Config) -> Result<()> {
         };
 
         process_due_jobs(&config, &security, jobs, SCHEDULER_COMPONENT).await;
+
+        // SOP cron check (window-based) + approval timeout polling
+        if let (Some(ref engine), Some(ref audit), Some(ref cache)) =
+            (&sop_engine, &sop_audit, &sop_cron_cache)
+        {
+            let results = crate::sop::dispatch::check_sop_cron_triggers(
+                engine,
+                audit,
+                cache,
+                &mut last_sop_cron_check,
+            )
+            .await;
+            crate::sop::dispatch::process_headless_results(&results).await;
+        }
+
+        // SOP approval timeout — check even without cron cache.
+        // Mirrors interactive loop behavior: snapshot runs under lock, then audit async.
+        if let Some(ref engine) = sop_engine {
+            let (actions, audit_runs) = match engine.lock() {
+                Ok(mut eng) => {
+                    let actions = eng.check_approval_timeouts();
+                    let mut runs = Vec::new();
+                    for action in &actions {
+                        if let crate::sop::types::SopRunAction::ExecuteStep { run_id, .. } = action
+                        {
+                            if let Some(run) = eng.get_run(run_id).cloned() {
+                                runs.push(run);
+                            }
+                        }
+                    }
+                    (actions, runs)
+                }
+                Err(e) => {
+                    tracing::error!("SOP engine lock poisoned in scheduler timeout check: {e}");
+                    crate::health::mark_component_error(
+                        "sop_scheduler",
+                        format!("lock poisoned: {e}"),
+                    );
+                    (Vec::new(), Vec::new())
+                }
+            };
+            // Engine lock dropped — safe to await audit
+            for action in &actions {
+                match action {
+                    crate::sop::types::SopRunAction::ExecuteStep { run_id, step, .. } => {
+                        tracing::warn!(
+                            "SOP approval timeout: run {run_id} auto-approved, ready for \
+                             step {} '{}' but no agent loop available",
+                            step.number,
+                            step.title,
+                        );
+                    }
+                    other => {
+                        tracing::info!("SOP approval timeout action: {other:?}");
+                    }
+                }
+            }
+            if let Some(ref audit) = sop_audit {
+                for run in &audit_runs {
+                    if let Err(e) = audit.log_timeout_auto_approve(run, run.current_step).await {
+                        tracing::warn!("SOP audit log for timeout auto-approve failed: {e}");
+                    }
+                }
+            }
+            if let Some(ref collector) = sop_collector {
+                for run in &audit_runs {
+                    collector.record_timeout_auto_approve(&run.sop_name, &run.run_id);
+                }
+            }
+        }
+
+        // Gate evaluation tick
+        #[cfg(feature = "ampersona-gates")]
+        if let (Some(ref ge), Some(ref collector)) = (&gate_eval, &sop_collector) {
+            if let Some(record) = ge.tick(collector.as_ref()) {
+                if let Some(ref audit) = sop_audit {
+                    if let Err(e) = audit.log_gate_decision(&record).await {
+                        tracing::warn!(
+                            gate_id = %record.gate_id,
+                            error = %e,
+                            "failed to log gate decision"
+                        );
+                    }
+                }
+                if let Err(e) = ge.persist().await {
+                    tracing::warn!(error = %e, "failed to persist gate phase state");
+                }
+            }
+        }
     }
 }
 
@@ -123,9 +214,9 @@ async fn process_due_jobs(
     }))
     .buffer_unordered(max_concurrent);
 
-    while let Some((job_id, success, output)) = in_flight.next().await {
+    while let Some((job_id, success)) = in_flight.next().await {
         if !success {
-            tracing::warn!("Scheduler job '{job_id}' failed: {output}");
+            tracing::warn!("Scheduler job '{job_id}' failed");
         }
     }
 }
@@ -135,7 +226,7 @@ async fn execute_and_persist_job(
     security: &SecurityPolicy,
     job: &CronJob,
     component: &str,
-) -> (String, bool, String) {
+) -> (String, bool) {
     crate::health::mark_component_ok(component);
     warn_if_high_frequency_agent_job(job);
 
@@ -144,7 +235,7 @@ async fn execute_and_persist_job(
     let finished_at = Utc::now();
     let success = persist_job_result(config, job, success, &output, started_at, finished_at).await;
 
-    (job.id.clone(), success, output)
+    (job.id.clone(), success)
 }
 
 async fn run_agent_job(

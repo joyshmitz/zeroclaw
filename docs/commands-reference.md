@@ -24,6 +24,7 @@ Last verified: **February 28, 2026**.
 | `channel` | Manage channels and channel health checks |
 | `integrations` | Inspect integration details |
 | `skills` | List/install/remove skills |
+| `sop` | Manage SOP definitions (`list/validate/show`) |
 | `migrate` | Import from external runtimes (currently OpenClaw) |
 | `config` | Inspect, query, and modify runtime configuration |
 | `completions` | Generate shell completion scripts to stdout |
@@ -286,6 +287,12 @@ Workspace symlink policy:
 - A symlinked skill is accepted only when its resolved canonical target is inside one of the trusted roots.
 
 Skill manifests (`SKILL.toml`) support `prompts` and `[[tools]]`; both are injected into the agent system prompt at runtime, so the model can follow skill instructions without manually reading skill files.
+
+### `sop`
+
+- `zeroclaw sop list`
+- `zeroclaw sop validate [name]`
+- `zeroclaw sop show <name>`
 
 ### `migrate`
 

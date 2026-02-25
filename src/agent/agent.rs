@@ -315,6 +315,12 @@ impl Agent {
             &config.agents,
             config.api_key.as_deref(),
             config,
+            None, // agent struct — SOP engine created internally if needed
+            None, // agent struct — no SOP metrics collector
+            #[cfg(feature = "ampersona-gates")]
+            None, // agent struct — no gate evaluation state wiring
+            #[cfg(not(feature = "ampersona-gates"))]
+            None,
         );
         let (tools, tool_filter_report) = tools::filter_primary_agent_tools(
             tools,
@@ -371,12 +377,8 @@ impl Agent {
             _ => Box::new(XmlToolDispatcher),
         };
 
-        let route_model_by_hint: HashMap<String, String> = config
-            .model_routes
-            .iter()
-            .map(|route| (route.hint.clone(), route.model.clone()))
-            .collect();
-        let available_hints: Vec<String> = route_model_by_hint.keys().cloned().collect();
+        let available_hints: Vec<String> =
+            config.model_routes.iter().map(|r| r.hint.clone()).collect();
 
         Agent::builder()
             .provider(provider)
@@ -395,7 +397,6 @@ impl Agent {
             .workspace_dir(config.workspace_dir.clone())
             .classification_config(config.query_classification.clone())
             .available_hints(available_hints)
-            .route_model_by_hint(route_model_by_hint)
             .identity_config(config.identity.clone())
             .skills(crate::skills::load_skills_with_config(
                 &config.workspace_dir,
@@ -504,24 +505,10 @@ impl Agent {
     }
 
     fn classify_model(&self, user_message: &str) -> String {
-        if let Some(decision) =
-            super::classifier::classify_with_decision(&self.classification_config, user_message)
-        {
-            if self.available_hints.contains(&decision.hint) {
-                let resolved_model = self
-                    .route_model_by_hint
-                    .get(&decision.hint)
-                    .map(String::as_str)
-                    .unwrap_or("unknown");
-                tracing::info!(
-                    target: "query_classification",
-                    hint = decision.hint.as_str(),
-                    model = resolved_model,
-                    rule_priority = decision.priority,
-                    message_length = user_message.len(),
-                    "Classified message route"
-                );
-                return format!("hint:{}", decision.hint);
+        if let Some(hint) = super::classifier::classify(&self.classification_config, user_message) {
+            if self.available_hints.contains(&hint) {
+                tracing::info!(hint = hint.as_str(), "Auto-classified query");
+                return format!("hint:{hint}");
             }
         }
         self.model_name.clone()
@@ -705,7 +692,7 @@ impl Agent {
             self.history.push(ConversationMessage::AssistantToolCalls {
                 text: response.text.clone(),
                 tool_calls: response.tool_calls.clone(),
-                reasoning_content: response.reasoning_content.clone(),
+                reasoning_content: None,
             });
 
             let results = self.execute_tools(&calls).await;

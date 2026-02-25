@@ -47,6 +47,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
+use tracing::Instrument;
 use uuid::Uuid;
 
 /// Maximum request body size (64KB) — prevents memory exhaustion
@@ -396,6 +397,12 @@ pub struct AppState {
     pub cost_tracker: Option<Arc<CostTracker>>,
     /// SSE broadcast channel for real-time events
     pub event_tx: tokio::sync::broadcast::Sender<serde_json::Value>,
+    /// Shared SOP engine (if SOP is enabled)
+    pub sop_engine: Option<Arc<std::sync::Mutex<crate::sop::SopEngine>>>,
+    /// SOP audit logger (if SOP is enabled)
+    pub sop_audit: Option<Arc<crate::sop::SopAuditLogger>>,
+    /// SOP metrics collector (if SOP is enabled)
+    pub sop_collector: Option<Arc<crate::sop::SopMetricsCollector>>,
 }
 
 /// Run the HTTP gateway using axum with proper HTTP/1.1 compliance.
@@ -486,6 +493,12 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         &config.agents,
         config.api_key.as_deref(),
         &config,
+        sop_engine.clone(),
+        sop_collector.clone(),
+        #[cfg(feature = "ampersona-gates")]
+        None, // gateway — no gate evaluation state wiring
+        #[cfg(not(feature = "ampersona-gates"))]
+        None,
     ));
     let tools_registry: Arc<Vec<ToolSpec>> =
         Arc::new(tools_registry_exec.iter().map(|t| t.spec()).collect());
@@ -821,6 +834,9 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         max_tool_iterations,
         cost_tracker,
         event_tx,
+        sop_engine,
+        sop_audit,
+        sop_collector,
     };
 
     // Config PUT needs larger body limit (1MB)
@@ -941,7 +957,6 @@ async fn handle_health(State(state): State<AppState>) -> impl IntoResponse {
     let body = serde_json::json!({
         "status": "ok",
         "paired": state.pairing.is_paired(),
-        "require_pairing": state.pairing.require_pairing(),
         "runtime": crate::health::snapshot_json(),
     });
     Json(body)
@@ -1617,6 +1632,7 @@ fn handle_webhook_streaming(
 async fn handle_webhook(
     State(state): State<AppState>,
     ConnectInfo(peer_addr): ConnectInfo<SocketAddr>,
+    uri: axum::http::Uri,
     headers: HeaderMap,
     body: Result<Json<WebhookBody>, axum::extract::rejection::JsonRejection>,
 ) -> Response {
@@ -1698,7 +1714,8 @@ async fn handle_webhook(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        if !state.idempotency_store.record_if_new(idempotency_key) {
+        let namespaced_key = format!("webhook:{idempotency_key}");
+        if !state.idempotency_store.record_if_new(&namespaced_key) {
             tracing::info!("Webhook duplicate ignored (idempotency key: {idempotency_key})");
             let body = serde_json::json!({
                 "status": "duplicate",
@@ -1884,6 +1901,150 @@ async fn handle_webhook(
             (StatusCode::INTERNAL_SERVER_ERROR, Json(err)).into_response()
         }
     }
+}
+
+/// POST /sop/{*rest} — SOP-only webhook dispatch for custom paths.
+///
+/// Unlike `/webhook`, this handler only performs SOP trigger matching.
+/// If no SOP matches the path, returns 404 (no LLM fallback).
+/// Auth (pairing + webhook secret) is enforced identically to `/webhook`.
+async fn handle_sop_webhook(
+    State(state): State<AppState>,
+    ConnectInfo(peer_addr): ConnectInfo<SocketAddr>,
+    uri: axum::http::Uri,
+    headers: HeaderMap,
+    body: Result<Json<WebhookBody>, axum::extract::rejection::JsonRejection>,
+) -> impl IntoResponse {
+    // ── Rate limit ──
+    let client_key =
+        client_key_from_request(Some(peer_addr), &headers, state.trust_forwarded_headers);
+    if !state.rate_limiter.allow_webhook(&client_key) {
+        tracing::warn!("/sop rate limit exceeded for key: {client_key}");
+        let err = serde_json::json!({
+            "error": "Too many requests. Please retry later.",
+            "retry_after": RATE_LIMIT_WINDOW_SECS,
+        });
+        return (StatusCode::TOO_MANY_REQUESTS, Json(err));
+    }
+
+    // ── Auth: pairing ──
+    if state.pairing.require_pairing() {
+        let auth = headers
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        let token = auth.strip_prefix("Bearer ").unwrap_or("");
+        if !state.pairing.is_authenticated(token) {
+            tracing::warn!("SOP webhook: rejected — not paired / invalid bearer token");
+            let err = serde_json::json!({
+                "error": "Unauthorized — pair first via POST /pair, then send Authorization: Bearer <token>"
+            });
+            return (StatusCode::UNAUTHORIZED, Json(err));
+        }
+    }
+
+    // ── Auth: webhook secret ──
+    if let Some(ref secret_hash) = state.webhook_secret_hash {
+        let header_hash = headers
+            .get("X-Webhook-Secret")
+            .and_then(|v| v.to_str().ok())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(hash_webhook_secret);
+        match header_hash {
+            Some(val) if constant_time_eq(&val, secret_hash.as_ref()) => {}
+            _ => {
+                tracing::warn!("SOP webhook: rejected — invalid or missing X-Webhook-Secret");
+                let err = serde_json::json!({
+                    "error": "Invalid or missing X-Webhook-Secret"
+                });
+                return (StatusCode::UNAUTHORIZED, Json(err));
+            }
+        }
+    }
+
+    // ── Parse body ──
+    let Json(webhook_body) = match body {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!("SOP webhook JSON parse error: {e}");
+            let err = serde_json::json!({
+                "error": "Invalid JSON body. Expected: {\"message\": \"...\"}"
+            });
+            return (StatusCode::BAD_REQUEST, Json(err));
+        }
+    };
+
+    // ── Idempotency (optional) ──
+    if let Some(idempotency_key) = headers
+        .get("X-Idempotency-Key")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let namespaced_key = format!("sop:{idempotency_key}");
+        if !state.idempotency_store.record_if_new(&namespaced_key) {
+            tracing::info!("SOP webhook duplicate ignored (idempotency key: {idempotency_key})");
+            let body = serde_json::json!({
+                "status": "duplicate",
+                "idempotent": true,
+                "message": "Request already processed for this idempotency key"
+            });
+            return (StatusCode::OK, Json(body));
+        }
+    }
+
+    // ── SOP dispatch ──
+    if let (Some(ref engine), Some(ref audit)) = (&state.sop_engine, &state.sop_audit) {
+        let event = crate::sop::SopEvent {
+            source: crate::sop::SopTriggerSource::Webhook,
+            topic: Some(uri.path().to_string()),
+            payload: Some(webhook_body.message.clone()),
+            timestamp: crate::sop::engine::now_iso8601(),
+        };
+        let matched_names = match engine.lock() {
+            Ok(eng) => eng
+                .match_trigger(&event)
+                .iter()
+                .map(|s| s.name.clone())
+                .collect::<Vec<_>>(),
+            Err(e) => {
+                tracing::error!("SOP engine lock poisoned in /sop handler: {e}");
+                let err = serde_json::json!({"error": "Internal server error"});
+                return (StatusCode::INTERNAL_SERVER_ERROR, Json(err));
+            }
+        };
+        if !matched_names.is_empty() {
+            let engine = Arc::clone(engine);
+            let audit = Arc::clone(audit);
+            tokio::spawn(
+                async move {
+                    let results =
+                        crate::sop::dispatch::dispatch_sop_event(&engine, &audit, event).await;
+                    crate::sop::dispatch::process_headless_results(&results).await;
+                }
+                .instrument(tracing::info_span!("sop_dispatch", source = "sop_webhook")),
+            );
+            let body = serde_json::json!({
+                "status": "accepted",
+                "matched_sops": matched_names,
+                "source": "sop_webhook",
+                "path": uri.path(),
+            });
+            return (StatusCode::ACCEPTED, Json(body));
+        }
+    } else {
+        // SOP engine not configured — this endpoint requires it
+        let err = serde_json::json!({"error": "SOP engine not available"});
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(err));
+    }
+
+    // No SOP match — 404 (no LLM fallback on /sop/* routes)
+    let err = serde_json::json!({
+        "error": "No SOP matched this path",
+        "path": uri.path(),
+    });
+    (StatusCode::NOT_FOUND, Json(err))
 }
 
 /// `WhatsApp` verification query params
@@ -3026,6 +3187,9 @@ mod tests {
             max_tool_iterations: 10,
             cost_tracker: None,
             event_tx: tokio::sync::broadcast::channel(16).0,
+            sop_engine: None,
+            sop_audit: None,
+            sop_collector: None,
         };
 
         let response = handle_metrics(State(state), test_connect_info(), HeaderMap::new())
@@ -3088,6 +3252,9 @@ mod tests {
             max_tool_iterations: 10,
             cost_tracker: None,
             event_tx: tokio::sync::broadcast::channel(16).0,
+            sop_engine: None,
+            sop_audit: None,
+            sop_collector: None,
         };
 
         let response = handle_metrics(State(state), test_connect_info(), HeaderMap::new())
@@ -3657,6 +3824,10 @@ Reminder set successfully."#;
         ConnectInfo(SocketAddr::from(([203, 0, 113, 10], 30_300)))
     }
 
+    fn test_uri() -> axum::http::Uri {
+        "/webhook".parse::<axum::http::Uri>().unwrap()
+    }
+
     #[tokio::test]
     async fn webhook_idempotency_skips_duplicate_provider_calls() {
         let provider_impl = Arc::new(MockProvider::default());
@@ -3694,6 +3865,9 @@ Reminder set successfully."#;
             max_tool_iterations: 10,
             cost_tracker: None,
             event_tx: tokio::sync::broadcast::channel(16).0,
+            sop_engine: None,
+            sop_audit: None,
+            sop_collector: None,
         };
 
         let mut headers = HeaderMap::new();
@@ -3707,6 +3881,7 @@ Reminder set successfully."#;
         let first = handle_webhook(
             State(state.clone()),
             test_connect_info(),
+            test_uri(),
             headers.clone(),
             body,
         )
@@ -3719,7 +3894,7 @@ Reminder set successfully."#;
             stream: None,
             session_id: None,
         }));
-        let second = handle_webhook(State(state), test_connect_info(), headers, body)
+        let second = handle_webhook(State(state), test_connect_info(), test_uri(), headers, body)
             .await
             .into_response();
         assert_eq!(second.status(), StatusCode::OK);
@@ -3944,6 +4119,9 @@ Reminder set successfully."#;
             max_tool_iterations: 10,
             cost_tracker: None,
             event_tx: tokio::sync::broadcast::channel(16).0,
+            sop_engine: None,
+            sop_audit: None,
+            sop_collector: None,
         };
 
         let response = handle_node_control(
@@ -4002,6 +4180,9 @@ Reminder set successfully."#;
             max_tool_iterations: 10,
             cost_tracker: None,
             event_tx: tokio::sync::broadcast::channel(16).0,
+            sop_engine: None,
+            sop_audit: None,
+            sop_collector: None,
         };
 
         let response = handle_node_control(
@@ -4124,6 +4305,9 @@ Reminder set successfully."#;
             max_tool_iterations: 10,
             cost_tracker: None,
             event_tx: tokio::sync::broadcast::channel(16).0,
+            sop_engine: None,
+            sop_audit: None,
+            sop_collector: None,
         };
 
         let headers = HeaderMap::new();
@@ -4136,6 +4320,7 @@ Reminder set successfully."#;
         let first = handle_webhook(
             State(state.clone()),
             test_connect_info(),
+            test_uri(),
             headers.clone(),
             body1,
         )
@@ -4148,9 +4333,15 @@ Reminder set successfully."#;
             stream: None,
             session_id: None,
         }));
-        let second = handle_webhook(State(state), test_connect_info(), headers, body2)
-            .await
-            .into_response();
+        let second = handle_webhook(
+            State(state),
+            test_connect_info(),
+            test_uri(),
+            headers,
+            body2,
+        )
+        .await
+        .into_response();
         assert_eq!(second.status(), StatusCode::OK);
 
         let keys = tracking_impl.keys.lock().clone();
@@ -4212,11 +4403,15 @@ Reminder set successfully."#;
             max_tool_iterations: 10,
             cost_tracker: None,
             event_tx: tokio::sync::broadcast::channel(16).0,
+            sop_engine: None,
+            sop_audit: None,
+            sop_collector: None,
         };
 
         let response = handle_webhook(
             State(state),
             test_connect_info(),
+            test_uri(),
             HeaderMap::new(),
             Ok(Json(WebhookBody {
                 message: "hello".into(),
@@ -4270,6 +4465,9 @@ Reminder set successfully."#;
             max_tool_iterations: 10,
             cost_tracker: None,
             event_tx: tokio::sync::broadcast::channel(16).0,
+            sop_engine: None,
+            sop_audit: None,
+            sop_collector: None,
         };
 
         let mut headers = HeaderMap::new();
@@ -4281,6 +4479,7 @@ Reminder set successfully."#;
         let response = handle_webhook(
             State(state),
             test_connect_info(),
+            test_uri(),
             headers,
             Ok(Json(WebhookBody {
                 message: "hello".into(),
@@ -4333,6 +4532,9 @@ Reminder set successfully."#;
             max_tool_iterations: 10,
             cost_tracker: None,
             event_tx: tokio::sync::broadcast::channel(16).0,
+            sop_engine: None,
+            sop_audit: None,
+            sop_collector: None,
         };
 
         let mut headers = HeaderMap::new();
@@ -4341,6 +4543,7 @@ Reminder set successfully."#;
         let response = handle_webhook(
             State(state),
             test_connect_info(),
+            test_uri(),
             headers,
             Ok(Json(WebhookBody {
                 message: "hello".into(),
@@ -5158,6 +5361,9 @@ Reminder set successfully."#;
             max_tool_iterations: 10,
             cost_tracker: None,
             event_tx: tokio::sync::broadcast::channel(16).0,
+            sop_engine: None,
+            sop_audit: None,
+            sop_collector: None,
         };
 
         let response = handle_nextcloud_talk_webhook(
@@ -5220,6 +5426,9 @@ Reminder set successfully."#;
             max_tool_iterations: 10,
             cost_tracker: None,
             event_tx: tokio::sync::broadcast::channel(16).0,
+            sop_engine: None,
+            sop_audit: None,
+            sop_collector: None,
         };
 
         let mut headers = HeaderMap::new();
@@ -5275,6 +5484,9 @@ Reminder set successfully."#;
             max_tool_iterations: 10,
             cost_tracker: None,
             event_tx: tokio::sync::broadcast::channel(16).0,
+            sop_engine: None,
+            sop_audit: None,
+            sop_collector: None,
         };
 
         let response = handle_qq_webhook(
@@ -5329,6 +5541,9 @@ Reminder set successfully."#;
             max_tool_iterations: 10,
             cost_tracker: None,
             event_tx: tokio::sync::broadcast::channel(16).0,
+            sop_engine: None,
+            sop_audit: None,
+            sop_collector: None,
         };
 
         let mut headers = HeaderMap::new();
