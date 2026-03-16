@@ -368,6 +368,10 @@ pub struct Config {
     #[serde(default)]
     pub locale: Option<String>,
 
+    /// Standard Operating Procedures configuration (`[sop]`).
+    #[serde(default)]
+    pub sop: SopConfig,
+
     /// Verifiable Intent (VI) credential verification and issuance (`[verifiable_intent]`).
     #[serde(default)]
     pub verifiable_intent: VerifiableIntentConfig,
@@ -417,6 +421,73 @@ impl Default for WorkspaceConfig {
             isolate_secrets: true,
             isolate_audit: true,
             cross_workspace_search: false,
+        }
+    }
+}
+
+/// Configuration for the Standard Operating Procedures system.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SopConfig {
+    /// Enable the SOP subsystem (default: false).
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Directory containing SOP definitions (default: `<workspace>/sops`).
+    #[serde(default)]
+    pub sops_dir: Option<String>,
+
+    /// Default execution mode for SOPs that don't specify one.
+    #[serde(default)]
+    pub default_execution_mode: crate::sop::SopExecutionMode,
+
+    /// Maximum total concurrent SOP executions across all SOPs.
+    #[serde(default = "default_sop_max_concurrent_total")]
+    pub max_concurrent_total: usize,
+
+    /// Seconds to wait for operator approval before timeout action.
+    #[serde(default = "default_sop_approval_timeout_secs")]
+    pub approval_timeout_secs: u64,
+
+    /// Maximum number of finished runs to keep in memory for status queries.
+    #[serde(default = "default_sop_max_finished_runs")]
+    pub max_finished_runs: usize,
+
+    /// Path to ampersona persona file with gate definitions.
+    #[serde(default)]
+    pub gates_file: Option<String>,
+
+    /// Gate evaluation tick interval in seconds (0 = disabled).
+    #[serde(default = "default_gate_eval_interval_secs")]
+    pub gate_eval_interval_secs: u64,
+}
+
+fn default_sop_max_concurrent_total() -> usize {
+    5
+}
+
+fn default_sop_approval_timeout_secs() -> u64 {
+    300
+}
+
+fn default_sop_max_finished_runs() -> usize {
+    1000
+}
+
+fn default_gate_eval_interval_secs() -> u64 {
+    60
+}
+
+impl Default for SopConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            sops_dir: None,
+            default_execution_mode: crate::sop::SopExecutionMode::Supervised,
+            max_concurrent_total: default_sop_max_concurrent_total(),
+            approval_timeout_secs: default_sop_approval_timeout_secs(),
+            max_finished_runs: default_sop_max_finished_runs(),
+            gates_file: None,
+            gate_eval_interval_secs: default_gate_eval_interval_secs(),
         }
     }
 }
@@ -6464,6 +6535,7 @@ impl Default for Config {
             linkedin: LinkedInConfig::default(),
             plugins: PluginsConfig::default(),
             locale: None,
+            sop: SopConfig::default(),
             verifiable_intent: VerifiableIntentConfig::default(),
         }
     }
@@ -9350,6 +9422,7 @@ default_temperature = 0.7
             linkedin: LinkedInConfig::default(),
             plugins: PluginsConfig::default(),
             locale: None,
+            sop: SopConfig::default(),
             verifiable_intent: VerifiableIntentConfig::default(),
         };
 
@@ -9688,6 +9761,7 @@ tool_dispatcher = "xml"
             linkedin: LinkedInConfig::default(),
             plugins: PluginsConfig::default(),
             locale: None,
+            sop: SopConfig::default(),
             verifiable_intent: VerifiableIntentConfig::default(),
         };
 
