@@ -20,7 +20,21 @@ pub use types::{
 
 use anyhow::Result;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use tracing::warn;
+
+/// Create a shared SOP engine from config, returning `None` when SOP is disabled.
+pub fn create_sop_engine(
+    config: &crate::config::SopConfig,
+    workspace_dir: &Path,
+) -> Option<Arc<Mutex<SopEngine>>> {
+    if !config.enabled {
+        return None;
+    }
+    let mut engine = SopEngine::new(config.clone());
+    engine.reload(workspace_dir);
+    Some(Arc::new(Mutex::new(engine)))
+}
 
 use types::{SopManifest, SopMeta};
 

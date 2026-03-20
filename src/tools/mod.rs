@@ -168,24 +168,10 @@ use crate::config::{Config, DelegateAgentConfig};
 use crate::memory::Memory;
 use crate::runtime::{NativeRuntime, RuntimeAdapter};
 use crate::security::{create_sandbox, SecurityPolicy};
-use crate::sop::SopEngine;
 use async_trait::async_trait;
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-
-/// Create a shared SOP engine from config, returning `None` when SOP is disabled.
-pub fn create_sop_engine(
-    config: &crate::config::SopConfig,
-    workspace_dir: &std::path::Path,
-) -> Option<Arc<Mutex<SopEngine>>> {
-    if !config.enabled {
-        return None;
-    }
-    let mut engine = SopEngine::new(config.clone());
-    engine.reload(workspace_dir);
-    Some(Arc::new(Mutex::new(engine)))
-}
+use std::sync::Arc;
 
 /// Shared handle to the delegate tool's parent-tools list.
 /// Callers can push additional tools (e.g. MCP wrappers) after construction.
@@ -712,27 +698,34 @@ pub fn all_tools_with_runtime(
 
     // SOP tools (conditionally registered when SOP subsystem is enabled)
     if root_config.sop.enabled {
-        let sop_engine = create_sop_engine(&root_config.sop, workspace_dir)
-            .expect("SOP engine creation should succeed when sop.enabled=true");
-        let sop_audit = Arc::new(crate::sop::SopAuditLogger::new(memory.clone()));
-        let sop_collector = Arc::new(crate::sop::SopMetricsCollector::new());
-        tool_arcs.push(Arc::new(SopListTool::new(sop_engine.clone())));
-        tool_arcs.push(Arc::new(
-            SopExecuteTool::new(sop_engine.clone()).with_audit(sop_audit.clone()),
-        ));
-        tool_arcs.push(Arc::new(
-            SopStatusTool::new(sop_engine.clone()).with_collector(sop_collector.clone()),
-        ));
-        tool_arcs.push(Arc::new(
-            SopApproveTool::new(sop_engine.clone())
-                .with_audit(sop_audit.clone())
-                .with_collector(sop_collector.clone()),
-        ));
-        tool_arcs.push(Arc::new(
-            SopAdvanceTool::new(sop_engine)
-                .with_audit(sop_audit)
-                .with_collector(sop_collector),
-        ));
+        match crate::sop::create_sop_engine(&root_config.sop, workspace_dir) {
+            Some(sop_engine) => {
+                let sop_audit = Arc::new(crate::sop::SopAuditLogger::new(memory.clone()));
+                let sop_collector = Arc::new(crate::sop::SopMetricsCollector::new());
+                tool_arcs.push(Arc::new(SopListTool::new(sop_engine.clone())));
+                tool_arcs.push(Arc::new(
+                    SopExecuteTool::new(sop_engine.clone()).with_audit(sop_audit.clone()),
+                ));
+                tool_arcs.push(Arc::new(
+                    SopStatusTool::new(sop_engine.clone()).with_collector(sop_collector.clone()),
+                ));
+                tool_arcs.push(Arc::new(
+                    SopApproveTool::new(sop_engine.clone())
+                        .with_audit(sop_audit.clone())
+                        .with_collector(sop_collector.clone()),
+                ));
+                tool_arcs.push(Arc::new(
+                    SopAdvanceTool::new(sop_engine)
+                        .with_audit(sop_audit)
+                        .with_collector(sop_collector),
+                ));
+            }
+            None => {
+                tracing::error!(
+                    "SOP is enabled but engine creation failed; SOP tools will not be available"
+                );
+            }
+        }
     }
 
     // Workspace management tool (conditionally registered when workspace isolation is enabled)
