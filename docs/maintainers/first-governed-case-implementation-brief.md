@@ -111,6 +111,72 @@ This is the narrowest current seam that is both:
 - real in the codebase
 - shared by channel and gateway tool-enabled flows
 
+## When To Start
+
+The first governed seam should start after the current document set passes review.
+
+That means:
+
+- the product definition remains accepted as the controlling frame
+- the architecture brief remains accepted as the codebase bridge
+- the first governed-case MVP plan remains accepted as the chosen scenario
+- the conflict surface map remains accepted as the merge-pressure baseline
+- this implementation brief remains accepted as the first insertion address
+
+This first code step should **not** wait for a future stable release or beta tag by default.
+
+Why:
+
+- the current insertion point is already clear enough
+- waiting does not reduce the current thesis-to-code gap
+- upstream beta and release watching should continue in parallel, not replace the first fork-owned seam
+
+The first code step should be delayed only if one of the following becomes true before work starts:
+
+- upstream materially rewrites the `process_message(...)` path
+- upstream introduces orchestration or approval primitives that change the meaning of the chosen seam
+- review finds a conceptual contradiction in the current document chain
+
+## Minimal First Code Step
+
+The first code step should be a narrow insertion in:
+
+- [src/agent/loop_.rs](/data/projects/zeroclaw/src/agent/loop_.rs)
+  - `process_message(...)`
+
+The insertion point should be:
+
+- after the incoming payload has reached `process_message(...)`
+- before `build_context(...)`
+- before `ChatMessage::user(&enriched)` is created
+- before `agent_turn(...)` begins generic provider/tool motion
+
+The first pass should do only three new things there:
+
+1. detect whether the incoming payload is an explicit incident candidate
+2. build a minimal in-flight governed-case draft for that scenario
+3. choose the first bounded response mode before generic motion
+
+That is the smallest code step that makes the fork thesis operational rather than documentary.
+
+## Minimal File Footprint
+
+The preferred first code footprint should be:
+
+- one narrow call-site change in [src/agent/loop_.rs](/data/projects/zeroclaw/src/agent/loop_.rs)
+- one new fork-owned helper module for incident classification and first governed-case drafting
+
+The first pass should avoid touching these shared central surfaces unless the compiler forces it:
+
+- [src/agent/agent.rs](/data/projects/zeroclaw/src/agent/agent.rs)
+- [src/gateway/mod.rs](/data/projects/zeroclaw/src/gateway/mod.rs)
+- [src/tools/mod.rs](/data/projects/zeroclaw/src/tools/mod.rs)
+- [src/config/schema.rs](/data/projects/zeroclaw/src/config/schema.rs)
+- [src/lib.rs](/data/projects/zeroclaw/src/lib.rs)
+- [src/main.rs](/data/projects/zeroclaw/src/main.rs)
+
+This matters because the first seam should reduce architectural uncertainty without inflating known merge surfaces.
+
 ## First Implementation Scope
 
 The first implementation scope should be limited to the non-interactive incident-handling path.
