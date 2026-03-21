@@ -1,6 +1,6 @@
 # Fork Architecture Brief
 
-Timestamp: 2026-03-21
+Timestamp: 2026-03-21T13:50:25+02:00
 
 ## Status
 
@@ -33,7 +33,7 @@ This brief is constrained by the current fork product definition:
 - signal type matters more than delivery channel
 - cognition should be selective, not maximal by default
 
-It is also shaped by the 2026-03-21 fork audit conclusion:
+It is also shaped by the fork audit conclusion current at the time this document version was written:
 
 - the repo is partially drifting but recoverable
 - the thesis is coherent

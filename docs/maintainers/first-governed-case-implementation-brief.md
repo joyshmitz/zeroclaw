@@ -1,6 +1,6 @@
 # First Governed Case Implementation Brief
 
-Timestamp: 2026-03-21
+Timestamp: 2026-03-21T13:50:25+02:00
 
 ## Status
 

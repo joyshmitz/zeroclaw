@@ -1,5 +1,7 @@
 # Fork Upstream Observation Rules
 
+Timestamp: 2026-03-21T13:50:25+02:00
+
 Rules for watching `upstream` without letting upstream velocity silently redefine fork direction.
 
 ## Purpose
