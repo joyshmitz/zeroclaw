@@ -10,7 +10,7 @@ The goal is to stabilize product thinking before committing to large architectur
 This document is informed by:
 
 - internal fork strategy discussions
-- the future-system explanation in [`/data/projects/odoov19/EXPLAIN.md`](/data/projects/odoov19/EXPLAIN.md)
+- an internal future-system framing centered on SOP, quality checks, alerts, CAPA, and Go/No-Go gates
 - Fledge and FledgePower as reference points for signal-provider ecosystems
 
 ## Planning Posture
@@ -128,9 +128,7 @@ The fork may involve several distinct actors:
 
 PDCA remains a first-class framing principle.
 
-The PDCA framing here is strongly reinforced by the future-system description in
-[`/data/projects/odoov19/EXPLAIN.md`](/data/projects/odoov19/EXPLAIN.md),
-especially its treatment of SOP, quality checks, alerts, CAPA, and Go/No-Go gates.
+The PDCA framing here is strongly reinforced by the internal future-system framing that emphasized SOP, quality checks, alerts, CAPA, and Go/No-Go gates as the bridge between governed interpretation and corrective action.
 
 - `Plan`
   - SOP
@@ -1082,8 +1080,10 @@ This is enough product clarity to move from idea formation into architecture and
 
 ## Sources
 
-- Internal future-system framing:
-  - [`/data/projects/odoov19/EXPLAIN.md`](/data/projects/odoov19/EXPLAIN.md)
+- Internal future-system framing carried into this document:
+  - SOP as the current core of `Plan`
+  - quality checks, alerts, CAPA, and Go/No-Go gates as PDCA anchors
+  - governed interpretation before motion
 - Signal-provider ecosystem references:
   - [Fledge Introduction](https://fledge-iot.readthedocs.io/en/v3.1.0/introduction.html)
   - [fledge-power GitHub organization](https://github.com/fledge-power)
