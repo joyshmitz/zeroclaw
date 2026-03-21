@@ -1,3 +1,6 @@
+use crate::agent::governed::{
+    disabled_sop_summary, draft_incident_case, render_gateway_response, summarize_dispatch_results,
+};
 use crate::approval::{ApprovalManager, ApprovalRequest, ApprovalResponse};
 use crate::config::Config;
 use crate::i18n::ToolDescriptions;
@@ -4066,6 +4069,45 @@ pub async fn process_message(
         (None, None)
     };
     let sop_engine = crate::sop::create_sop_engine(&config.sop, &config.workspace_dir);
+    if let Some(governed_case) = draft_incident_case(message) {
+        tracing::info!(
+            case_type = %governed_case.case_type,
+            severity = %governed_case.severity,
+            response_mode = %governed_case.response_mode,
+            "Governed incident intake accepted on process_message path"
+        );
+
+        let dispatch_summary = if governed_case.needs_sop_dispatch() {
+            if let Some(engine) = sop_engine.as_ref() {
+                let audit = crate::sop::SopAuditLogger::new(mem.clone());
+                let results = crate::sop::dispatch::dispatch_sop_event(
+                    engine,
+                    &audit,
+                    governed_case.to_sop_event(message),
+                )
+                .await;
+                crate::sop::dispatch::process_headless_results(&results).await;
+                Some(summarize_dispatch_results(&results))
+            } else {
+                Some(disabled_sop_summary())
+            }
+        } else {
+            None
+        };
+
+        if let Some(summary) = dispatch_summary.as_ref() {
+            tracing::info!(
+                response_mode = %summary.response_mode,
+                detail = %summary.detail,
+                "Governed incident routing completed before generic agent motion"
+            );
+        }
+
+        return Ok(render_gateway_response(
+            &governed_case,
+            dispatch_summary.as_ref(),
+        ));
+    }
     let (mut tools_registry, delegate_handle_pm) = tools::all_tools_with_runtime(
         Arc::new(config.clone()),
         &security,
@@ -4409,6 +4451,27 @@ mod tests {
         let scrubbed = scrub_credentials(input);
         assert!(scrubbed.contains("\"api_key\": \"sk-1*[REDACTED]\""));
         assert!(scrubbed.contains("public"));
+    }
+
+    #[tokio::test]
+    async fn process_message_short_circuits_explicit_incident_before_generic_motion() {
+        let dir = tempdir().unwrap();
+        let workspace_dir = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace_dir).unwrap();
+
+        let config = crate::config::Config {
+            workspace_dir,
+            ..crate::config::Config::default()
+        };
+
+        let response = process_message(config, "INCIDENT: pump 7 failed pressure check", None)
+            .await
+            .expect("governed incident response");
+
+        assert!(response.contains("Governed incident intake accepted."));
+        assert!(response.contains("Ingress: gateway_webhook"));
+        assert!(response.contains("Response mode: request_evidence"));
+        assert!(response.contains("SOP dispatch: not attempted"));
     }
 
     #[tokio::test]
