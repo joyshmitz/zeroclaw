@@ -690,6 +690,9 @@ A useful minimal formal core is:
   - feedback/update function
   - determines when repeated patterns or outcomes justify changing SOP, policy, thresholds, evidence requirements, or autonomy boundaries
 
+In product terms, these functions operate over the lifecycle of a governed case, even when the case object is not yet modeled explicitly in the notation above.
+Case formation and case update are therefore part of the conceptual flow from `E_k` and `I_k` through `G` and into `U`, and should be formalized further if the mathematical layer is later expanded.
+
 This is intentionally minimal.
 It is enough to make the product core more exact without prematurely hard-coding one architectural style or one mathematical worldview.
 
@@ -758,7 +761,7 @@ Outside the product boundary by default:
 - full system-of-record ownership for domain truth
 - arbitrary cognition without a governed decision need
 
-Seen through this lens, the product core is:
+Seen through this lens, the product core being formalized below is:
 
 `a runtime for signal-class-specific emergence, governed case formation, governed interpretation, constrained response, and auditable PDCA feedback`
 
@@ -917,7 +920,7 @@ It is deciding when signals create or transform governed cases and then carrying
 The first product form should be treated as:
 
 - an internal-first governed response runtime
-- centered on enterprise and operational workflows
+- centered on operational and enterprise workflows
 - deployable centrally or near the edge when useful
 - capable of handling technical, operational, and business-originated primary signals within one model
 
