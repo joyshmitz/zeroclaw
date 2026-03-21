@@ -152,6 +152,65 @@ especially its treatment of SOP, quality checks, alerts, CAPA, and Go/No-Go gate
 
 The fork should be evaluated not only by whether it reacts to a signal, but whether it supports a usable PDCA loop.
 
+## Standards Guidance
+
+Relevant standards should be used as guidance rails where they sharpen vocabulary, controls, evidence, risk treatment, review, and continual improvement.
+
+They should **not** be allowed to redefine product identity.
+The product is still defined by governed interpretation and response to primary signals, not by compliance theater or certification-first framing.
+This is a critical correction:
+standards should lead and discipline relevant sections of the document, but they should not define product identity.
+Otherwise the fork drifts into certification-first thinking instead of product-first clarity.
+
+The strongest management-system reference remains ISO 9001 because it aligns well with:
+
+- PDCA as the governing loop
+- process approach
+- risk-based thinking
+- corrective action and improvement
+- documented information
+- monitoring, review, and evidence
+
+As of 2026-03-21, a useful reference set is:
+
+- `ISO 9000:2015`
+  - fundamentals and vocabulary
+  - useful for keeping product terms disciplined where `signal`, `case`, `evidence`, `process`, `nonconformity`, and `corrective action` begin to overlap
+- `ISO 9001:2015`
+  - quality management system requirements
+  - strongest anchor for PDCA, process governance, evidence, corrective action, and continual improvement
+- `ISO 9004:2018`
+  - sustained success guidance
+  - useful where the document moves beyond minimum control toward organizational learning and maturity
+- `ISO 19011:2018`
+  - management-system auditing guidance
+  - useful for auditability, review structure, evidence discipline, and internal assessment loops
+- `ISO 31000:2018`
+  - risk management guidance
+  - useful for autonomy boundaries, escalation logic, and risk-aware response selection
+- `ISO/IEC 42001:2023`
+  - AI management systems
+  - useful for AI governance, accountability, transparency, and management-system treatment of AI use
+- `ISO/IEC 23894:2023`
+  - AI risk management guidance
+  - useful where cognition and model-driven interpretation introduce AI-specific risk treatment questions
+- `ISO/IEC 27001:2022`
+  - information security management systems
+  - useful for evidence protection, access boundaries, integrity, and operational trustworthiness
+- `ISO 22301:2019`
+  - business continuity management systems
+  - useful for disruption handling, resilience, and recovery-oriented sections
+- `IEC 62443` family
+  - industrial automation and control system security
+  - useful only where OT, industrial edge, gateway, controller, or plant-level deployment becomes materially in scope
+
+Working rule:
+
+- use standards to tighten section-level reasoning
+- prefer clause-relevant guidance over broad standards dumping
+- do not let standards drag the plan into transport-first or certification-first thinking
+- introduce standard families only where they materially clarify controls, boundaries, or evidence requirements
+
 ## SOP As Plan Core
 
 SOP should be treated as the most concrete current embodiment of `Plan`.
@@ -973,10 +1032,27 @@ Architectural work should be justified by which of these failures it reduces.
 
 This planning direction assumes:
 
-- `fork/main` stays close to upstream
+- `origin/main` acts as the fork trunk
+- `upstream/master` is the current upstream intake source
+- the fork trunk stays intentionally close to upstream
 - fork-specific integration work lives in the fork
 - only small, atomic, low-conflict changes are proposed upstream
-- strategy is revisited when product intent becomes clearer
+- upstream intake should happen through dedicated merge/conflict branches rather than being mixed into long-lived product work
+- strategy is revisited when product intent or fork drift becomes clearer
+
+Working branch model:
+
+- `merge/*`
+  - upstream intake and conflict resolution branches
+- `docs/*` or `plan/*`
+  - product-definition and strategic planning branches
+- `feat/*` or `fix/*`
+  - fork functionality branches
+- small atomic topic branches
+  - only for work that has a realistic upstream path
+
+This matters because future upstream merges are expected to create conflicts.
+The branch model should make those conflicts explicit, localizable, and reviewable rather than spreading them across unrelated product work.
 
 ## Triggers For Strategy Revisit
 
@@ -1008,6 +1084,17 @@ This is enough product clarity to move from idea formation into architecture and
 - Signal-provider ecosystem references:
   - [Fledge Introduction](https://fledge-iot.readthedocs.io/en/v3.1.0/introduction.html)
   - [fledge-power GitHub organization](https://github.com/fledge-power)
+- Standards references used as guidance rails:
+  - [ISO 9000:2015](https://www.iso.org/standard/45481.html)
+  - [ISO 9001:2015](https://www.iso.org/standard/62085.html)
+  - [ISO 9004:2018](https://www.iso.org/standard/70397.html)
+  - [ISO 19011:2018](https://www.iso.org/standard/70017.html)
+  - [ISO 31000:2018](https://www.iso.org/iso-31000-risk-management.html)
+  - [ISO/IEC 42001:2023](https://www.iso.org/standard/42001)
+  - [ISO/IEC 23894:2023](https://www.iso.org/standard/77304.html)
+  - [ISO/IEC 27001:2022](https://www.iso.org/standard/27001)
+  - [ISO 22301:2019](https://www.iso.org/standard/75106.html)
+  - [IEC 62443 family reference points](https://webstore.iec.ch/en/publication/102885)
 - Fork strategy and governance context:
   - local fork strategy discussion captured in `fork-first` working decisions
   - upstream repository: [zeroclaw-labs/zeroclaw](https://github.com/zeroclaw-labs/zeroclaw)
