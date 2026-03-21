@@ -10,7 +10,7 @@ The goal is to stabilize product thinking before committing to large architectur
 This document is informed by:
 
 - internal fork strategy discussions
-- the future-system explanation in [`/data/projects/odoov19/EXPLAIN.md`](/data/projects/odoov19/EXPLAIN.md)
+- an internal future-system framing centered on SOP, quality checks, alerts, CAPA, and Go/No-Go gates
 - Fledge and FledgePower as reference points for signal-provider ecosystems
 
 ## Planning Posture
@@ -83,7 +83,7 @@ These principles are intended to constrain future design choices without prematu
 
 ## What The Fork Is
 
-The fork is currently best understood as an internal runtime for governed response to heterogeneous primary signals, with optional evolution toward a product-grade edge and enterprise workflow runtime.
+The fork should now be understood as an internal-first implementation path toward a governed response runtime for heterogeneous primary signals.
 
 This means the fork may serve:
 
@@ -92,7 +92,10 @@ This means the fork may serve:
 - operator-assist workflows
 - future edge/product scenarios
 
-It does **not** yet imply that the fork is already a production orchestration substrate.
+The product identity is not “internal tooling” as such.
+Internal runtime use is the first product form because it is the fastest path to proving signal emergence, governed interpretation, SOP-bounded response, and PDCA feedback under real conditions.
+
+It does **not** imply that the system should become a generic orchestration substrate or a transport-defined platform.
 
 ## Actors
 
@@ -125,9 +128,7 @@ The fork may involve several distinct actors:
 
 PDCA remains a first-class framing principle.
 
-The PDCA framing here is strongly reinforced by the future-system description in
-[`/data/projects/odoov19/EXPLAIN.md`](/data/projects/odoov19/EXPLAIN.md),
-especially its treatment of SOP, quality checks, alerts, CAPA, and Go/No-Go gates.
+The PDCA framing here is strongly reinforced by the internal future-system framing that emphasized SOP, quality checks, alerts, CAPA, and Go/No-Go gates as the bridge between governed interpretation and corrective action.
 
 - `Plan`
   - SOP
@@ -148,6 +149,65 @@ especially its treatment of SOP, quality checks, alerts, CAPA, and Go/No-Go gate
   - SOP or policy refinement
 
 The fork should be evaluated not only by whether it reacts to a signal, but whether it supports a usable PDCA loop.
+
+## Standards Guidance
+
+Relevant standards should be used as guidance rails where they sharpen vocabulary, controls, evidence, risk treatment, review, and continual improvement.
+
+They should **not** be allowed to redefine product identity.
+The product is still defined by governed interpretation and response to primary signals, not by compliance theater or certification-first framing.
+This is a critical correction:
+standards should lead and discipline relevant sections of the document, but they should not define product identity.
+Otherwise the fork drifts into certification-first thinking instead of product-first clarity.
+
+The strongest management-system reference remains ISO 9001 because it aligns well with:
+
+- PDCA as the governing loop
+- process approach
+- risk-based thinking
+- corrective action and improvement
+- documented information
+- monitoring, review, and evidence
+
+As of 2026-03-21, a useful reference set is:
+
+- `ISO 9000:2015`
+  - fundamentals and vocabulary
+  - useful for keeping product terms disciplined where `signal`, `case`, `evidence`, `process`, `nonconformity`, and `corrective action` begin to overlap
+- `ISO 9001:2015`
+  - quality management system requirements
+  - strongest anchor for PDCA, process governance, evidence, corrective action, and continual improvement
+- `ISO 9004:2018`
+  - sustained success guidance
+  - useful where the document moves beyond minimum control toward organizational learning and maturity
+- `ISO 19011:2018`
+  - management-system auditing guidance
+  - useful for auditability, review structure, evidence discipline, and internal assessment loops
+- `ISO 31000:2018`
+  - risk management guidance
+  - useful for autonomy boundaries, escalation logic, and risk-aware response selection
+- `ISO/IEC 42001:2023`
+  - AI management systems
+  - useful for AI governance, accountability, transparency, and management-system treatment of AI use
+- `ISO/IEC 23894:2023`
+  - AI risk management guidance
+  - useful where cognition and model-driven interpretation introduce AI-specific risk treatment questions
+- `ISO/IEC 27001:2022`
+  - information security management systems
+  - useful for evidence protection, access boundaries, integrity, and operational trustworthiness
+- `ISO 22301:2019`
+  - business continuity management systems
+  - useful for disruption handling, resilience, and recovery-oriented sections
+- `IEC 62443` family
+  - industrial automation and control system security
+  - useful only where OT, industrial edge, gateway, controller, or plant-level deployment becomes materially in scope
+
+Working rule:
+
+- use standards to tighten section-level reasoning
+- prefer clause-relevant guidance over broad standards dumping
+- do not let standards drag the plan into transport-first or certification-first thinking
+- introduce standard families only where they materially clarify controls, boundaries, or evidence requirements
 
 ## SOP As Plan Core
 
@@ -272,6 +332,161 @@ Over time, the fork will likely need a clearer typology of signals, for example:
 - approval-relevant event
 
 This typology is not yet fully defined, but it is expected to matter more than any single transport choice.
+
+## Signal Emergence Gates
+
+Not every raw event emitted by a source should count as a primary signal for the fork.
+
+This distinction matters most in high-volume environments.
+A sensor, meter, controller, or gateway may emit observations continuously, but the runtime does not gain value from treating each raw emission as a first-class governed event.
+
+The working principle should be:
+
+- raw telemetry is not automatically a primary signal
+- a primary signal emerges only when some condition makes it operationally meaningful
+- emergence criteria belong to `Plan` because they define what deserves `Check`
+
+In practical terms, a primary signal may emerge through one or more gates such as:
+
+- threshold breach
+- state transition
+- persistence over time
+- rate-of-change or drift beyond tolerance
+- correlation across multiple observations
+- missing expected event or silence
+- explicit human submission
+- policy-defined exception or priority trigger
+
+This keeps the fork centered on governed response rather than raw transport volume.
+
+For many environments, especially device or gateway-heavy ones, the better model is:
+
+`stream of observations -> emergence gate -> primary signal -> governed interpretation`
+
+This reduces noise and preserves the idea that the fork is not primarily a telemetry firehose processor.
+
+## Temporal Semantics Of Emergence
+
+For many instrument, gateway, and controller-originated signals, emergence should be evaluated over time rather than on a single raw observation.
+
+This makes your intuition directionally correct:
+for some signal types, `Plan` should define a time window in which observations are analyzed for change, persistence, drift, or trend before a primary signal is emitted.
+
+However, this should not become a universal rule for all signals.
+The better framing is:
+
+- each signal type may have its own temporal semantics
+- some signals are instantaneous
+- some are windowed
+- some are stateful across a rolling history
+- some emerge from absence or silence rather than presence
+
+A useful working distinction is:
+
+- instantaneous emergence
+  - explicit human submission
+  - approval or rejection event
+  - hard safety stop
+  - direct policy-defined exception
+- windowed emergence
+  - threshold breach sustained over a period
+  - drift across successive measurements
+  - unstable oscillation or flapping
+  - rate-of-change beyond tolerance
+- stateful emergence
+  - repeated weak deviations that become significant cumulatively
+  - fault patterns that only matter across multiple episodes
+- absence-based emergence
+  - expected heartbeat missing
+  - required confirmation not received
+  - expected follow-up event absent within a policy-defined interval
+
+For windowed signal types, `Plan` should define emergence semantics such as:
+
+- evaluation window
+- aggregation or smoothing method
+- baseline or expected range
+- trend or drift criteria
+- persistence requirement
+- hysteresis or cooldown behavior
+- deduplication and re-alert conditions
+
+This matters because the product value is not in forwarding every reading.
+It is in deciding when a pattern has become operationally meaningful enough to deserve governed interpretation.
+
+In many deployments, especially high-volume edge environments, these temporal emergence rules may run close to the source, including at gateway level.
+That is acceptable and often desirable.
+But it still should not redefine product identity:
+the gateway may host emergence logic, while the fork remains centered on meaning, governance, SOP, and response.
+
+## Transport-Neutral Cognitive Admission
+
+The decision to invoke heavier cognition should be treated as a separate gate from signal emergence.
+
+In other words:
+
+- not every raw event becomes a primary signal
+- not every primary signal deserves cognitive interpretation
+- not every cognitive interpretation should involve an LLM
+
+The admission question is not only “is cognition affordable”.
+It is “does cognition materially improve the governed response enough to justify its operational cost”.
+
+A useful admission lens is:
+
+- ambiguity
+  - is the meaning unclear without richer interpretation
+- unstructuredness
+  - does the signal arrive in natural language, weak schema, or messy mixed context
+- consequence
+  - would better interpretation materially reduce risk of wrong routing or wrong action
+- novelty
+  - is this poorly covered by existing SOP, rules, or historical patterns
+- evidence gap
+  - does interpretation need synthesis across scattered context before action can be governed
+
+This keeps cognition subordinate to operational need rather than source prestige.
+
+The default posture should therefore be:
+
+- signal-type-specific deterministic rules first
+- richer contextual interpretation second
+- cognitive escalation only when lower-cost rules leave meaningful uncertainty
+
+This means the cheapest useful computation for a given signal type should usually be preferred as the first gate.
+That includes threshold rules, temporal window rules, drift detection, state transition rules, silence detection, and other bounded evaluators defined by `Plan`.
+
+An email often justifies cognition more often than device telemetry because it is frequently unstructured and compressed into human language.
+But email should still not be assumed to require cognition by default:
+
+- spam
+- auto-replies
+- routine structured requests
+- obvious known intents
+
+may all be handled without heavy interpretation.
+
+Likewise, device and gateway signals usually justify cognition less often because they are structured and high-volume.
+But they should not be excluded categorically:
+
+- multi-signal anomalies
+- repeated near-threshold drift
+- ambiguous fault clusters
+- incidents requiring explanation or recommendation
+
+may justify cognitive escalation.
+
+So the correct principle is not:
+
+`email -> cognition`
+
+or:
+
+`gateway -> no cognition`
+
+but rather:
+
+`signal significance + ambiguity + consequence -> cognition if justified`
 
 ## System Boundary
 
@@ -410,6 +625,231 @@ This helps preserve:
 - bounded cost
 - architectural clarity
 
+## Cost Is Not The Only Gate
+
+Cheap versus expensive model calls are relevant, but they are not the main conceptual boundary.
+
+Even a cheap LLM invocation can be operationally expensive if it adds:
+
+- latency at the wrong point in a workflow
+- nondeterminism where a rule would be safer
+- audit burden without decision-value
+- operator confusion or review fatigue
+- broader policy or privacy exposure
+- more surface area for subtle misinterpretation
+
+The inverse is also true:
+an expensive cognitive step may be justified if it materially reduces error, improves routing, protects autonomy boundaries, or prevents repeated human confusion in high-value cases.
+
+So the core question should be:
+
+`is cognition warranted here`
+
+not merely:
+
+`is cognition cheap enough`
+
+This supports a stronger design posture:
+
+- use cheap deterministic gates first
+- escalate to richer interpretation only when those gates leave meaningful uncertainty
+- treat cognition as selective operational leverage, not ambient background processing
+
+Applied back to signal design, this means:
+
+- the first evaluator should usually be the cheapest rule set that is appropriate for that signal type
+- signal-type-specific emergence logic is a product asset, not an implementation detail
+- LLM usage should usually begin where deterministic signal-type rules stop being sufficient
+
+## Mathematical Framing
+
+Mathematics should be introduced here as a language for formalizing boundaries, not as a substitute for product thinking.
+
+Its strongest use in this fork is to make the following questions precise:
+
+- when raw observations become a primary signal
+- what uncertainty remains after interpretation
+- which response modes are allowed under policy and autonomy constraints
+- what evidence is sufficient for escalation, action, or closure
+- when outcomes justify `update Plan`
+
+A useful minimal formal core is:
+
+- `E_k(history, state, plan) -> primary_signal | nil`
+  - emergence function for signal class `k`
+  - turns raw observations or events into an operationally meaningful signal only when emergence criteria are met
+- `I_k(signal, context, plan) -> meaning, risk, uncertainty`
+  - interpretation function for signal class `k`
+  - produces the operational meaning needed for governed response
+- `G(meaning, risk, uncertainty, evidence, policy, autonomy) -> response_mode`
+  - governance function
+  - determines whether the correct response is observation, evidence request, routing, staged action, constrained execution, or escalation
+- `U(history, outcomes, plan) -> proposed_plan_change | nil`
+  - feedback/update function
+  - determines when repeated patterns or outcomes justify changing SOP, policy, thresholds, evidence requirements, or autonomy boundaries
+
+In product terms, these functions operate over the lifecycle of a governed case, even when the case object is not yet modeled explicitly in the notation above.
+Case formation and case update are therefore part of the conceptual flow from `E_k` and `I_k` through `G` and into `U`, and should be formalized further if the mathematical layer is later expanded.
+
+This is intentionally minimal.
+It is enough to make the product core more exact without prematurely hard-coding one architectural style or one mathematical worldview.
+
+## Mathematical Regimes By Signal Class
+
+The strongest direction is not one universal formula for everything.
+It is a small set of mathematical regimes matched to the nature of each signal class.
+
+Examples:
+
+- continuous or windowed observations
+  - moving windows
+  - smoothing or aggregation
+  - drift or trend detection
+  - rate-of-change checks
+  - control limits
+  - hysteresis
+- discrete state transitions
+  - finite-state logic
+  - allowed transition predicates
+  - guard conditions
+- approval or gate events
+  - boolean policy logic
+  - authorization predicates
+  - explicit threshold and signature requirements
+- request or inbox-style signals
+  - classification
+  - confidence thresholds
+  - routing scores
+  - ambiguity flags
+- silence or missing-event signals
+  - timeout windows
+  - expected-arrival intervals
+  - missing-heartbeat detection
+- repeated incidents and outcomes
+  - recurrence rates
+  - trend and control-chart style thinking
+  - feedback thresholds for `update Plan`
+
+This means the right pattern is:
+
+`signal class -> suitable mathematical regime -> emergence rule -> governed response envelope`
+
+That is stronger than either extreme:
+
+- one grand universal formula for all signals
+- a completely ad hoc bespoke logic for every individual case
+
+## Product Boundary Clarified By Math
+
+Mathematical framing helps clarify what is inside the product boundary and what is merely adjacent.
+
+Inside the product boundary by default:
+
+- emergence logic
+- interpretation and uncertainty handling
+- governance predicates
+- evidence sufficiency rules
+- response-mode selection
+- feedback thresholds for `update Plan`
+
+Outside the product boundary by default:
+
+- raw transport mechanics for every possible provider
+- full telemetry retention or historian behavior
+- full system-of-record ownership for domain truth
+- arbitrary cognition without a governed decision need
+
+Seen through this lens, the product core being formalized below is:
+
+`a runtime for signal-class-specific emergence, governed case formation, governed interpretation, constrained response, and auditable PDCA feedback`
+
+## Operational Meaning
+
+Meaning should be understood here as **operational meaning**, not semantic richness for its own sake.
+
+A signal has enough meaning when the system can determine:
+
+- what kind of situation it represents
+- whether it opens a new governed case, updates an existing one, or only enriches context
+- what process context and ownership domain it belongs to
+- which procedure, policy, or gate may apply
+- what risk, urgency, and autonomy envelope applies
+- what evidence is already present and what evidence is still missing
+
+In this framing, meaning matters because it changes the response envelope.
+If interpretation does not change routing, procedure selection, evidence requirements, approval needs, or allowed action, it is not yet strong product-value interpretation.
+
+## Working Signal-Type Lens
+
+The signal-type axis should remain intentionally small until repeated real workflows force refinement.
+
+A useful current working set is:
+
+- `observation`
+  - state, measurement, or condition report
+  - may remain in `Check` unless thresholds or policy elevate it
+- `deviation`
+  - anomaly, failed check, or out-of-bounds condition
+  - usually requires classification, evidence, and possible corrective flow
+- `request`
+  - inbound demand for service, decision, workflow initiation, or action preparation
+  - typically requires routing, ownership, and procedure selection
+- `decision/gate event`
+  - approval, rejection, Go/No-Go, or other authorization-relevant transition
+  - changes what actions are now allowed
+- `outcome event`
+  - completion, failure, or result of a governed step
+  - may close a case or trigger `update Plan`
+
+This is not a final taxonomy.
+It is a minimal working lens that covers current anchor scenarios without overfitting to transport.
+
+An inbound command should usually be treated first as a signal requiring interpretation and governance, not as self-justifying execution.
+
+## Governed Response Modes
+
+Not every meaningful signal should trigger the same kind of response.
+
+A useful response lens is:
+
+- record and observe
+- enrich or request evidence
+- route or assign
+- recommend a procedure or next step
+- stage an action for approval
+- execute a pre-authorized constrained step
+- initiate plan review
+
+The correct response mode should be shaped by signal type, context, risk, policy, and autonomy boundaries.
+
+In many cases, the correct governed response is not immediate motion.
+It may be explicit non-action, observation, or evidence collection with a clear decision trail.
+
+## What `update Plan` Means
+
+The PDCA loop in this fork should not end at response execution.
+
+`update Plan` should be understood as governed change to the artifacts that shape future response, such as:
+
+- SOP content or branching
+- policy rules
+- thresholds or gate criteria
+- evidence requirements
+- routing or ownership rules
+- autonomy boundaries
+
+Plan update becomes justified when repeated signals or outcomes expose:
+
+- missing or ambiguous SOP coverage
+- repeated misclassification or wrong routing
+- unstable thresholds or noisy alerts
+- approval bottlenecks or autonomy mismatch
+- evidence gaps that block reliable action
+- divergence between written procedure and actual successful practice
+
+This keeps learning concrete, reviewable, and bounded.
+It does not imply unconstrained self-modifying behavior.
+
 ## Scenario Table
 
 | Scenario | Primary Signal | Meaning | Governed Response | PDCA Role | Classification |
@@ -419,6 +859,115 @@ This helps preserve:
 | Quality or operational incident | failed check, quality alert, stop condition | corrective workflow required | run SOP, require evidence, approvals, corrective steps, phase/gate control | `Check -> Act -> Plan` | `internal` |
 | Edge agent in product | local device or gateway event | local constrained response needed | execute allowed local SOP step, escalate when needed, record decision trail | `Do/Check -> Act` | `product` |
 | Mixed-signal response hub | technical, human, business, system events | need one governed response model | normalize, route, execute SOP, audit, escalate, revise process | full loop | `product seed` |
+
+## Governed Case Semantics
+
+The product should not be modeled as “signals in, actions out” alone.
+The central operational unit should be the **governed case**.
+
+A governed case is the bounded tracked situation created when one or more primary signals require governed handling.
+It binds together:
+
+- relevant signals
+- context
+- interpretation
+- applicable SOP and policy
+- evidence
+- approvals
+- chosen response mode
+- actions and outcomes
+- PDCA feedback
+
+This creates an important distinction:
+
+- a raw event is not yet a primary signal
+- a primary signal is not yet a governed case
+- a governed case is not yet an action
+
+A signal should open a new governed case when it introduces a distinct operational situation that requires one or more of:
+
+- response-mode selection
+- evidence collection or sufficiency tracking
+- ownership or routing
+- approval tracking
+- bounded execution
+- explicit closure or escalation
+
+A signal should update an existing governed case when it:
+
+- adds evidence
+- changes risk or urgency
+- confirms or falsifies the current interpretation
+- advances or blocks the current procedure
+- records approval, rejection, execution, or outcome
+- resolves or closes the situation
+
+A signal should remain observation-only when, under the current `Plan`, it does not materially change the response envelope and does not justify case creation.
+
+This case-centric view is important because it gives the product a stronger identity than either:
+
+- a generic event router
+- a generic workflow engine
+- an LLM assistant sitting on top of messages
+
+The runtime’s real work is not merely receiving signals.
+It is deciding when signals create or transform governed cases and then carrying those cases through bounded response and feedback.
+
+## Initial Product Form
+
+The first product form should be treated as:
+
+- an internal-first governed response runtime
+- centered on operational and enterprise workflows
+- deployable centrally or near the edge when useful
+- capable of handling technical, operational, and business-originated primary signals within one model
+
+This is the right first product form because it matches the current anchor scenarios and the current strongest sources of value:
+
+- SOP-bounded handling
+- approval and autonomy control
+- evidence and audit trail
+- selective cognition
+- PDCA feedback into improved procedure and policy
+
+This also clarifies what the first product form is **not**:
+
+- not a telemetry platform first
+- not an edge fleet manager first
+- not a generic workflow builder first
+- not an inbox copilot first
+- not a transport integration catalog first
+
+Edge deployment remains compatible with this definition.
+It is a deployment locus and runtime topology choice, not the thing that defines product identity.
+
+## Final Product Definition
+
+The product should be defined as:
+
+`a PDCA-governed response runtime that turns heterogeneous primary signals into governed cases, determines meaning and allowed response under SOP, policy, evidence, and autonomy constraints, coordinates bounded human/agent/runtime action, and feeds auditable outcomes back into Plan`
+
+In shorter form:
+
+`signal-class-specific emergence -> governed case -> bounded response -> auditable PDCA feedback`
+
+This definition implies that the product core includes:
+
+- signal-class-specific emergence logic
+- case formation and case updating
+- governed interpretation
+- response-mode selection
+- bounded execution or staged action
+- evidence and audit
+- feedback into SOP, policy, thresholds, and autonomy design
+
+This definition also implies that the product is **not** defined by:
+
+- any single transport
+- any single provider ecosystem
+- whether runtime logic sits centrally or near the edge
+- whether cognition is present on every signal
+- ownership of every surrounding workflow or system-of-record boundary
 
 ## Immediate Anchor Scenarios
 
@@ -435,7 +984,7 @@ Why these:
 - they do not require immediate commitment to full product architecture
 - they exercise SOP in realistic ways
 
-These anchor scenarios should guide future narrowing of the plan.
+These anchor scenarios should now be treated as validation scenarios for the chosen product definition.
 They are more important than trying to prematurely optimize for a single final architecture.
 
 ## Current Non-Goals
@@ -484,10 +1033,27 @@ Architectural work should be justified by which of these failures it reduces.
 
 This planning direction assumes:
 
-- `fork/main` stays close to upstream
+- `origin/main` acts as the fork trunk
+- `upstream/master` is the current upstream intake source
+- the fork trunk stays intentionally close to upstream
 - fork-specific integration work lives in the fork
 - only small, atomic, low-conflict changes are proposed upstream
-- strategy is revisited when product intent becomes clearer
+- upstream intake should happen through dedicated merge/conflict branches rather than being mixed into long-lived product work
+- strategy is revisited when product intent or fork drift becomes clearer
+
+Working branch model:
+
+- `merge/*`
+  - upstream intake and conflict resolution branches
+- `docs/*` or `plan/*`
+  - product-definition and strategic planning branches
+- `feat/*` or `fix/*`
+  - fork functionality branches
+- small atomic topic branches
+  - only for work that has a realistic upstream path
+
+This matters because future upstream merges are expected to create conflicts.
+The branch model should make those conflicts explicit, localizable, and reviewable rather than spreading them across unrelated product work.
 
 ## Triggers For Strategy Revisit
 
@@ -501,24 +1067,37 @@ Revisit this document when one of these becomes true:
 
 ## Working Conclusion
 
-At this stage, the fork should be treated as:
+The planning cycle has now reached a usable final product definition.
 
-- more than a playground
-- not yet a full product runtime
-- a practical internal runtime for PDCA-governed response to primary signals
+The fork should be treated as:
 
-This is enough clarity to guide near-term development without forcing premature architecture.
+- the implementation path for an internal-first governed response runtime
+- centered on signal-class-specific emergence, governed cases, bounded response, and auditable PDCA feedback
+- broader than a single transport, inbox workflow, or edge integration
+- narrower than a generic orchestration platform or universal event stack
 
-The current phase is idea formation and direction-setting.
-Over-inclusiveness in the plan is acceptable at this stage if it preserves important strategic possibilities that may later be narrowed.
+This is enough product clarity to move from idea formation into architecture and implementation planning without pretending the surrounding ecosystem must be replaced.
 
 ## Sources
 
-- Internal future-system framing:
-  - [`/data/projects/odoov19/EXPLAIN.md`](/data/projects/odoov19/EXPLAIN.md)
+- Internal future-system framing carried into this document:
+  - SOP as the current core of `Plan`
+  - quality checks, alerts, CAPA, and Go/No-Go gates as PDCA anchors
+  - governed interpretation before motion
 - Signal-provider ecosystem references:
   - [Fledge Introduction](https://fledge-iot.readthedocs.io/en/v3.1.0/introduction.html)
   - [fledge-power GitHub organization](https://github.com/fledge-power)
+- Standards references used as guidance rails:
+  - [ISO 9000:2015](https://www.iso.org/standard/45481.html)
+  - [ISO 9001:2015](https://www.iso.org/standard/62085.html)
+  - [ISO 9004:2018](https://www.iso.org/standard/70397.html)
+  - [ISO 19011:2018](https://www.iso.org/standard/70017.html)
+  - [ISO 31000:2018](https://www.iso.org/iso-31000-risk-management.html)
+  - [ISO/IEC 42001:2023](https://www.iso.org/standard/42001)
+  - [ISO/IEC 23894:2023](https://www.iso.org/standard/77304.html)
+  - [ISO/IEC 27001:2022](https://www.iso.org/standard/27001)
+  - [ISO 22301:2019](https://www.iso.org/standard/75106.html)
+  - [IEC 62443 family reference points](https://webstore.iec.ch/en/publication/102885)
 - Fork strategy and governance context:
   - local fork strategy discussion captured in `fork-first` working decisions
   - upstream repository: [zeroclaw-labs/zeroclaw](https://github.com/zeroclaw-labs/zeroclaw)

@@ -2,7 +2,29 @@
 
 ZeroClaw is a Rust-first autonomous agent runtime. It receives messages from messaging platforms, routes them through an LLM, executes tool calls, persists memory, and returns responses. It can also control hardware peripherals and run as a long-lived daemon.
 
-## Runtime Flow
+## Fork Context
+
+For this fork, the repository should be read through two lenses at once:
+
+- the current upstream-shaped runtime substrate
+- the fork's governed-response direction
+
+The fork does **not** redefine product identity as a personal assistant, channel catalog, or hardware stack.
+Its current product thesis is a PDCA-governed response runtime centered on:
+
+`primary signal -> meaning -> governed response`
+
+For that framing, use:
+
+- [`PLAN_TO_FUTURE_PRODUCT.md`](/data/projects/zeroclaw/PLAN_TO_FUTURE_PRODUCT.md)
+- [fork-architecture-brief.md](fork-architecture-brief.md)
+- [first-governed-case-mvp-plan.md](first-governed-case-mvp-plan.md)
+- [conflict-surface-map.md](conflict-surface-map.md)
+
+This repository map therefore describes the current codebase baseline, not the final fork-owned architecture.
+When reading the module layout below, treat upstream runtime surfaces as reusable substrate and look for the fork-owned seams where governed response will enter.
+
+## Current Runtime Flow Baseline
 
 ```
 User message (Telegram/Discord/Slack/...)
@@ -32,6 +54,15 @@ User message (Telegram/Discord/Slack/...)
               feed results   send back
               back to LLM    via Channel
 ```
+
+## Fork Direction Overlay
+
+The fork is moving toward this architectural overlay on top of the current runtime:
+
+`ingress -> signal emergence -> classification/meaning -> governed case -> bounded response -> evidence -> PDCA feedback`
+
+That means the current runtime flow above is necessary but not sufficient for the fork's target identity.
+The most important maintainership question is not only "how does the agent answer", but "where does governed handling enter before generic tool motion".
 
 ---
 
