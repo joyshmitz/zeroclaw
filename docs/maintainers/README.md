@@ -5,6 +5,7 @@ Time-bound project status snapshots for planning documentation and operations wo
 ## Current Snapshot
 
 - [project-triage-snapshot-2026-02-18.md](project-triage-snapshot-2026-02-18.md)
+- [fork-upstream-observation-rules.md](fork-upstream-observation-rules.md)
 
 ## Scope
 
@@ -15,3 +16,5 @@ Project snapshots are time-bound assessments of open PRs, issues, and documentat
 - Track evolving PR/issue pressure over time
 
 For stable documentation classification (not time-bound), use [docs-inventory.md](docs-inventory.md).
+
+For fork-specific upstream monitoring and merge-surface observation rules, use [fork-upstream-observation-rules.md](fork-upstream-observation-rules.md).
