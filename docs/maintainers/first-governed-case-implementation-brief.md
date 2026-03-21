@@ -1,6 +1,6 @@
 # First Governed Case Implementation Brief
 
-Timestamp: 2026-03-21T13:50:25+02:00
+Timestamp: 2026-03-21T20:10:07+02:00
 
 ## Status
 
@@ -30,16 +30,24 @@ The goal is to say, in concrete codebase terms:
 
 The current repo already provides several useful footholds.
 
-### 1. Non-interactive ingress already converges on `process_message`
+### 1. `process_message(...)` is the current gateway/webhook seam, not a universal non-interactive seam
 
-Gateway and channel-oriented tool-enabled handling currently flows through:
+Current gateway tool-enabled handling flows through:
 
 - [src/gateway/mod.rs](/data/projects/zeroclaw/src/gateway/mod.rs)
   - `run_gateway_chat_with_tools(...)`
 - [src/agent/loop_.rs](/data/projects/zeroclaw/src/agent/loop_.rs)
   - `process_message(...)`
 
-This makes `process_message(...)` the clearest first non-interactive seam for the first governed case.
+Current channel handling does **not** flow through `process_message(...)`.
+In [src/channels/mod.rs](/data/projects/zeroclaw/src/channels/mod.rs), channel messages currently do their own:
+
+- memory recall
+- system-prompt construction
+- history assembly
+- direct `run_tool_call_loop(...)` invocation
+
+This makes `process_message(...)` the clearest first governed seam for the current gateway/webhook path, but not yet a shared seam across all non-interactive ingress.
 
 ### 2. Generic agent behavior currently starts before governed handling exists
 
@@ -101,7 +109,7 @@ The first governed case should enter the runtime at:
 - [src/agent/loop_.rs](/data/projects/zeroclaw/src/agent/loop_.rs)
   - `process_message(...)`
 
-It should enter there:
+For the first MVP, it should enter there:
 
 - after transport-specific ingress has already been normalized into a message/event payload
 - before system-prompt-driven LLM/tool motion begins
@@ -109,7 +117,20 @@ It should enter there:
 This is the narrowest current seam that is both:
 
 - real in the codebase
-- shared by channel and gateway tool-enabled flows
+- already on the gateway/webhook tool-enabled path
+
+## MVP Path Scope
+
+The first code pass should explicitly scope the first governed seam to gateway/webhook-originated signals that already reach `process_message(...)`.
+
+The current channel runtime in [src/channels/mod.rs](/data/projects/zeroclaw/src/channels/mod.rs) is a parallel non-interactive path.
+It currently performs its own memory recall, system-prompt assembly, history construction, and `run_tool_call_loop(...)` call without passing through `process_message(...)`.
+
+That means channel-path governed handling is a follow-on second pass, not silently covered by the first `process_message(...)` insertion.
+This is acceptable for the MVP because the fork first needs one honest narrow seam that makes the thesis operational without expanding immediately into one of the repo's largest ingress surfaces.
+
+If later parity is required, the fork can either extract a shared pre-motion helper or place an equivalent governed seam into the channel path.
+That follow-on choice does not need to be made before the first gateway-path code step.
 
 ## When To Start
 
@@ -159,6 +180,21 @@ The first pass should do only three new things there:
 
 That is the smallest code step that makes the fork thesis operational rather than documentary.
 
+## MVP Signal Admission Contract
+
+The first pass should not rely on broad keyword spotting across ordinary chat text.
+`process_message(...)` currently receives only `message: &str`, so the admission rule needs to stay explicit.
+
+The preferred target signal format for this MVP is a structured incident envelope with a top-level `signal_type` field, for example `signal_type = "incident"`, plus only the minimal fields needed for first-pass handling such as incident kind, severity, summary, and optional evidence hints.
+
+Because the current webhook handler still normalizes `{\"message\": \"...\"}` into a raw string, the bootstrap implementation may admit either:
+
+- a structured JSON envelope carried inside the existing `message` string
+- a clearly marked textual submission such as `INCIDENT:` or `[incident]`
+
+Free-form messages without an explicit marker or structured envelope should remain observation-only in this first pass.
+That keeps false positives bounded and avoids silently redefining normal gateway traffic as governed-case admission.
+
 ## Minimal File Footprint
 
 The preferred first code footprint should be:
@@ -170,6 +206,7 @@ The first pass should avoid touching these shared central surfaces unless the co
 
 - [src/agent/agent.rs](/data/projects/zeroclaw/src/agent/agent.rs)
 - [src/gateway/mod.rs](/data/projects/zeroclaw/src/gateway/mod.rs)
+- [src/channels/mod.rs](/data/projects/zeroclaw/src/channels/mod.rs)
 - [src/tools/mod.rs](/data/projects/zeroclaw/src/tools/mod.rs)
 - [src/config/schema.rs](/data/projects/zeroclaw/src/config/schema.rs)
 - [src/lib.rs](/data/projects/zeroclaw/src/lib.rs)
@@ -179,17 +216,20 @@ This matters because the first seam should reduce architectural uncertainty with
 
 ## First Implementation Scope
 
-The first implementation scope should be limited to the non-interactive incident-handling path.
+The first implementation scope should be limited to the gateway/webhook non-interactive incident-handling path.
 
 Working target:
 
-- explicit incident-like input arrives through an existing gateway/channel/internal path
+- explicit incident-like input arrives through the existing gateway/webhook path that reaches `process_message(...)`
 - `process_message(...)` recognizes it as an incident candidate before generic loop execution
 - the runtime chooses governed handling before open-ended agent/tool behavior
+
+Channel-path governed handling remains a second-pass concern after the first seam is proven on the gateway path.
 
 This means the first pass should **not** try to cover:
 
 - interactive CLI mode first
+- channel-path parity first
 - telemetry-window anomaly emergence
 - broad inbox classification
 - final case database design
@@ -213,7 +253,7 @@ Responsibility:
 
 Why here:
 
-- this is the earliest common non-interactive point where fork meaning can enter without changing transports
+- this is the earliest narrow point on the current gateway/webhook path where fork meaning can enter without changing transport handling
 
 ### 2. Governed case draft seam
 
@@ -369,4 +409,4 @@ It should begin by inserting one fork-owned governed-response seam into the exis
 - [src/agent/loop_.rs](/data/projects/zeroclaw/src/agent/loop_.rs)
   - `process_message(...)`
 
-That is the smallest current implementation address where the thesis can start becoming runtime behavior.
+That is the smallest current implementation address where the thesis can start becoming runtime behavior on the gateway/webhook path.

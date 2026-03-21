@@ -1,6 +1,6 @@
 # Conflict Surface Map
 
-Timestamp: 2026-03-21T13:50:25+02:00
+Timestamp: 2026-03-21T20:10:07+02:00
 
 ## Status
 
@@ -106,7 +106,33 @@ Current judgment:
 - high repeated-conflict risk
 - same underlying ownership problem as `src/agent/agent.rs`
 
-### 3. `src/tools/mod.rs`
+### 3. `src/channels/mod.rs`
+
+Current fork pressure:
+
+- the current first governed seam intentionally avoids this file
+- channel handling already has its own parallel message-processing path with memory recall, system-prompt assembly, history management, and direct `run_tool_call_loop(...)`
+- any future fork move to add governed handling parity for channel traffic would likely need to enter here
+- upstream continues to change channel behavior and provider-specific handling in the same file
+
+Why this repeats:
+
+- this is a very large high-churn ingress surface
+- it duplicates part of the non-interactive path outside `process_message(...)`
+- upstream channel feature growth and any fork-owned governed ingress logic would collide in the same area
+
+What this means architecturally:
+
+- the repo does not yet have one shared pre-motion seam across gateway and channel handling
+- that is one reason the first governed seam should stay gateway-scoped first
+- if the fork later needs channel-path governed handling, `src/channels/mod.rs` becomes a high-cost ownership surface
+
+Current judgment:
+
+- high repeated-conflict risk once the fork seeks channel-path parity
+- should be treated as a major avoidance target for the first code step
+
+### 4. `src/tools/mod.rs`
 
 Current fork pressure:
 
@@ -129,7 +155,7 @@ Current judgment:
 - high conflict risk
 - especially sensitive because constructor signatures ripple into tests and call sites
 
-### 4. `src/config/schema.rs`
+### 5. `src/config/schema.rs`
 
 Current fork pressure:
 
@@ -158,7 +184,7 @@ Current judgment:
 - medium architectural-risk
 - likely to remain painful until either schema churn slows or fork-owned config seams are better isolated
 
-### 5. `src/lib.rs`
+### 6. `src/lib.rs`
 
 Current fork pressure:
 
@@ -180,7 +206,7 @@ Current judgment:
 - medium repeated-conflict risk
 - lower churn than `main.rs`, but still a shared control surface
 
-### 6. `src/main.rs`
+### 7. `src/main.rs`
 
 Current fork pressure:
 
@@ -204,7 +230,7 @@ Current judgment:
 
 ## Shared Conflict Patterns
 
-The six surfaces above cluster into four repeat patterns.
+The seven surfaces above cluster into four repeat patterns.
 
 ### Pattern A: Shared Bootstrap Zones
 
@@ -212,6 +238,7 @@ Files:
 
 - `src/agent/agent.rs`
 - `src/gateway/mod.rs`
+- `src/channels/mod.rs`
 
 Meaning:
 
@@ -273,6 +300,7 @@ Priority watch items:
 
 - agent construction changes
 - gateway runtime assembly changes
+- channel message-handling pipeline changes
 - tool-registry signature changes
 - command-tree growth
 - config-schema expansion
@@ -298,7 +326,8 @@ It does define the reduction strategy the fork should prefer over time:
 
 Based on the current map:
 
-- `src/agent/agent.rs` and `src/gateway/mod.rs` are the clearest first-order tension points
+- `src/gateway/mod.rs` and `src/channels/mod.rs` are the clearest ingress-path tension points
+- `src/agent/agent.rs` remains the clearest central assembly tension point
 - `src/tools/mod.rs` is the most likely signature-ripple surface
 - `src/config/schema.rs` is the most likely slow-burn merge-cost amplifier
 - `src/main.rs` remains the most exposed CLI conflict surface
