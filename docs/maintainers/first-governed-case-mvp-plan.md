@@ -271,6 +271,11 @@ Once this MVP plan is accepted, the next artifacts should be:
 2. a first implementation brief mapping this MVP onto current modules
 3. validation criteria showing how this one governed path will be reviewed
 
+The first two are now represented by:
+
+- [conflict-surface-map.md](conflict-surface-map.md)
+- [first-governed-case-implementation-brief.md](first-governed-case-implementation-brief.md)
+
 ## Bottom Line
 
 The first governed case MVP should not start with the most technically impressive signal.

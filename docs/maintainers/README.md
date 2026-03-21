@@ -7,6 +7,7 @@ Time-bound project status snapshots for planning documentation and operations wo
 - [project-triage-snapshot-2026-02-18.md](project-triage-snapshot-2026-02-18.md)
 - [conflict-surface-map.md](conflict-surface-map.md)
 - [fork-architecture-brief.md](fork-architecture-brief.md)
+- [first-governed-case-implementation-brief.md](first-governed-case-implementation-brief.md)
 - [first-governed-case-mvp-plan.md](first-governed-case-mvp-plan.md)
 - [fork-upstream-observation-rules.md](fork-upstream-observation-rules.md)
 
@@ -23,6 +24,8 @@ For stable documentation classification (not time-bound), use [docs-inventory.md
 For the current fork/upstream merge-risk and architecture-pressure seams, use [conflict-surface-map.md](conflict-surface-map.md).
 
 For the current bridge between fork product definition and codebase direction, use [fork-architecture-brief.md](fork-architecture-brief.md).
+
+For the module-level first insertion point from governed-case planning into the current codebase, use [first-governed-case-implementation-brief.md](first-governed-case-implementation-brief.md).
 
 For the first concrete implementation-planning path from product thesis to governed handling, use [first-governed-case-mvp-plan.md](first-governed-case-mvp-plan.md).
 
