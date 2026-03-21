@@ -4156,6 +4156,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
     };
     // Build system prompt from workspace identity files + skills
     let workspace = config.workspace_dir.clone();
+    let sop_engine = crate::sop::create_sop_engine(&config.sop, &config.workspace_dir);
     let (mut built_tools, delegate_handle_ch): (Vec<Box<dyn Tool>>, _) =
         tools::all_tools_with_runtime(
             Arc::new(config.clone()),
@@ -4171,6 +4172,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
             &config.agents,
             config.api_key.as_deref(),
             &config,
+            sop_engine,
         );
 
     // Wire MCP tools into the registry before freezing — non-fatal.

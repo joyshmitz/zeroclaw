@@ -430,6 +430,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         (None, None)
     };
 
+    let sop_engine = crate::sop::create_sop_engine(&config.sop, &config.workspace_dir);
     let (tools_registry_raw, _delegate_handle_gw) = tools::all_tools_with_runtime(
         Arc::new(config.clone()),
         &security,
@@ -444,6 +445,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         &config.agents,
         config.api_key.as_deref(),
         &config,
+        sop_engine,
     );
     let tools_registry: Arc<Vec<ToolSpec>> =
         Arc::new(tools_registry_raw.iter().map(|t| t.spec()).collect());

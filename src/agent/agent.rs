@@ -359,6 +359,7 @@ impl Agent {
             None
         };
 
+        let sop_engine = crate::sop::create_sop_engine(&config.sop, &config.workspace_dir);
         let (tools, _delegate_handle) = tools::all_tools_with_runtime(
             Arc::new(config.clone()),
             &security,
@@ -373,6 +374,7 @@ impl Agent {
             &config.agents,
             config.api_key.as_deref(),
             config,
+            sop_engine,
         );
 
         let provider_name = config.default_provider.as_deref().unwrap_or("openrouter");

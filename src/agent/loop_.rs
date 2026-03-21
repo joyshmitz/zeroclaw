@@ -3304,6 +3304,7 @@ pub async fn run(
     } else {
         (None, None)
     };
+    let sop_engine = crate::sop::create_sop_engine(&config.sop, &config.workspace_dir);
     let (mut tools_registry, delegate_handle) = tools::all_tools_with_runtime(
         Arc::new(config.clone()),
         &security,
@@ -3318,6 +3319,7 @@ pub async fn run(
         &config.agents,
         config.api_key.as_deref(),
         &config,
+        sop_engine,
     );
 
     let peripheral_tools: Vec<Box<dyn Tool>> =
@@ -4059,6 +4061,7 @@ pub async fn process_message(
     } else {
         (None, None)
     };
+    let sop_engine = crate::sop::create_sop_engine(&config.sop, &config.workspace_dir);
     let (mut tools_registry, delegate_handle_pm) = tools::all_tools_with_runtime(
         Arc::new(config.clone()),
         &security,
@@ -4073,6 +4076,7 @@ pub async fn process_message(
         &config.agents,
         config.api_key.as_deref(),
         &config,
+        sop_engine,
     );
     let peripheral_tools: Vec<Box<dyn Tool>> =
         crate::peripherals::create_peripheral_tools(&config.peripherals).await?;

@@ -171,7 +171,7 @@ use crate::security::{create_sandbox, SecurityPolicy};
 use async_trait::async_trait;
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// Shared handle to the delegate tool's parent-tools list.
 /// Callers can push additional tools (e.g. MCP wrappers) after construction.
@@ -268,6 +268,7 @@ pub fn all_tools(
     agents: &HashMap<String, DelegateAgentConfig>,
     fallback_api_key: Option<&str>,
     root_config: &crate::config::Config,
+    sop_engine: Option<Arc<Mutex<crate::sop::SopEngine>>>,
 ) -> (Vec<Box<dyn Tool>>, Option<DelegateParentToolsHandle>) {
     all_tools_with_runtime(
         config,
@@ -283,6 +284,7 @@ pub fn all_tools(
         agents,
         fallback_api_key,
         root_config,
+        sop_engine,
     )
 }
 
@@ -302,6 +304,7 @@ pub fn all_tools_with_runtime(
     agents: &HashMap<String, DelegateAgentConfig>,
     fallback_api_key: Option<&str>,
     root_config: &crate::config::Config,
+    sop_engine: Option<Arc<Mutex<crate::sop::SopEngine>>>,
 ) -> (Vec<Box<dyn Tool>>, Option<DelegateParentToolsHandle>) {
     let has_shell_access = runtime.has_shell_access();
     let sandbox = create_sandbox(&root_config.security);
@@ -696,36 +699,27 @@ pub fn all_tools_with_runtime(
         )));
     }
 
-    // SOP tools (conditionally registered when SOP subsystem is enabled)
-    if root_config.sop.enabled {
-        match crate::sop::create_sop_engine(&root_config.sop, workspace_dir) {
-            Some(sop_engine) => {
-                let sop_audit = Arc::new(crate::sop::SopAuditLogger::new(memory.clone()));
-                let sop_collector = Arc::new(crate::sop::SopMetricsCollector::new());
-                tool_arcs.push(Arc::new(SopListTool::new(sop_engine.clone())));
-                tool_arcs.push(Arc::new(
-                    SopExecuteTool::new(sop_engine.clone()).with_audit(sop_audit.clone()),
-                ));
-                tool_arcs.push(Arc::new(
-                    SopStatusTool::new(sop_engine.clone()).with_collector(sop_collector.clone()),
-                ));
-                tool_arcs.push(Arc::new(
-                    SopApproveTool::new(sop_engine.clone())
-                        .with_audit(sop_audit.clone())
-                        .with_collector(sop_collector.clone()),
-                ));
-                tool_arcs.push(Arc::new(
-                    SopAdvanceTool::new(sop_engine)
-                        .with_audit(sop_audit)
-                        .with_collector(sop_collector),
-                ));
-            }
-            None => {
-                tracing::error!(
-                    "SOP is enabled but engine creation failed; SOP tools will not be available"
-                );
-            }
-        }
+    // SOP tools (conditionally registered when a shared engine is provided)
+    if let Some(sop_engine) = sop_engine {
+        let sop_audit = Arc::new(crate::sop::SopAuditLogger::new(memory.clone()));
+        let sop_collector = Arc::new(crate::sop::SopMetricsCollector::new());
+        tool_arcs.push(Arc::new(SopListTool::new(sop_engine.clone())));
+        tool_arcs.push(Arc::new(
+            SopExecuteTool::new(sop_engine.clone()).with_audit(sop_audit.clone()),
+        ));
+        tool_arcs.push(Arc::new(
+            SopStatusTool::new(sop_engine.clone()).with_collector(sop_collector.clone()),
+        ));
+        tool_arcs.push(Arc::new(
+            SopApproveTool::new(sop_engine.clone())
+                .with_audit(sop_audit.clone())
+                .with_collector(sop_collector.clone()),
+        ));
+        tool_arcs.push(Arc::new(
+            SopAdvanceTool::new(sop_engine)
+                .with_audit(sop_audit)
+                .with_collector(sop_collector),
+        ));
     }
 
     // Workspace management tool (conditionally registered when workspace isolation is enabled)
@@ -861,6 +855,7 @@ mod tests {
             &HashMap::new(),
             None,
             &cfg,
+            None,
         );
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(!names.contains(&"browser_open"));
@@ -903,6 +898,7 @@ mod tests {
             &HashMap::new(),
             None,
             &cfg,
+            None,
         );
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(names.contains(&"browser_open"));
@@ -1055,6 +1051,7 @@ mod tests {
             &agents,
             Some("delegate-test-credential"),
             &cfg,
+            None,
         );
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(names.contains(&"delegate"));
@@ -1088,6 +1085,7 @@ mod tests {
             &HashMap::new(),
             None,
             &cfg,
+            None,
         );
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(!names.contains(&"delegate"));
@@ -1122,6 +1120,7 @@ mod tests {
             &HashMap::new(),
             None,
             &cfg,
+            None,
         );
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(names.contains(&"read_skill"));
@@ -1156,6 +1155,7 @@ mod tests {
             &HashMap::new(),
             None,
             &cfg,
+            None,
         );
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(!names.contains(&"read_skill"));
