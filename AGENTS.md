@@ -162,6 +162,7 @@ The product is defined by governed interpretation and response to heterogeneous 
 - `@docs/contributing/change-playbooks.md` — adding providers, channels, tools, peripherals; security/gateway changes; architecture boundaries
 - `@docs/contributing/pr-discipline.md` — privacy rules, superseded-PR attribution/templates, handoff template
 - `@docs/contributing/docs-contract.md` — docs system contract, i18n rules, locale parity
+- `@docs/maintainers/conflict-surface-map.md` — current fork/upstream collision zones and what they imply about missing ownership seams
 - `@docs/maintainers/fork-architecture-brief.md` — architecture bridge between fork thesis and upstream-shaped codebase
 - `@docs/maintainers/first-governed-case-mvp-plan.md` — first concrete path from primary signal to governed case, bounded response, evidence, and PDCA feedback
 - `@docs/maintainers/fork-upstream-observation-rules.md` — how to watch upstream without letting upstream velocity redefine fork direction

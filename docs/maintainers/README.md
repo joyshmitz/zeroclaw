@@ -5,6 +5,7 @@ Time-bound project status snapshots for planning documentation and operations wo
 ## Current Snapshot
 
 - [project-triage-snapshot-2026-02-18.md](project-triage-snapshot-2026-02-18.md)
+- [conflict-surface-map.md](conflict-surface-map.md)
 - [fork-architecture-brief.md](fork-architecture-brief.md)
 - [first-governed-case-mvp-plan.md](first-governed-case-mvp-plan.md)
 - [fork-upstream-observation-rules.md](fork-upstream-observation-rules.md)
@@ -18,6 +19,8 @@ Project snapshots are time-bound assessments of open PRs, issues, and documentat
 - Track evolving PR/issue pressure over time
 
 For stable documentation classification (not time-bound), use [docs-inventory.md](docs-inventory.md).
+
+For the current fork/upstream merge-risk and architecture-pressure seams, use [conflict-surface-map.md](conflict-surface-map.md).
 
 For the current bridge between fork product definition and codebase direction, use [fork-architecture-brief.md](fork-architecture-brief.md).
 
