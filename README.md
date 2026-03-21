@@ -65,10 +65,13 @@ ZeroClaw is a personal AI assistant you run on your own devices. It answers you 
 
 If you want a personal, single-user assistant that feels local, fast, and always-on, this is it.
 
+> Fork direction note: this fork is being shaped toward a PDCA-governed response runtime for heterogeneous primary signals. For the current fork-specific product and architecture framing, see [PLAN_TO_FUTURE_PRODUCT.md](PLAN_TO_FUTURE_PRODUCT.md) and [docs/maintainers/fork-architecture-brief.md](docs/maintainers/fork-architecture-brief.md).
+
 <p align="center">
   <a href="https://zeroclawlabs.ai">Website</a> ·
   <a href="docs/README.md">Docs</a> ·
   <a href="docs/architecture.md">Architecture</a> ·
+  <a href="PLAN_TO_FUTURE_PRODUCT.md">Fork Product</a> ·
   <a href="#quick-start">Getting Started</a> ·
   <a href="#migrating-from-openclaw">Migrating from OpenClaw</a> ·
   <a href="docs/ops/troubleshooting.md">Troubleshoot</a> ·
