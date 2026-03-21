@@ -44,7 +44,7 @@ Current fork status:
 
 ## Core Thesis
 
-The fork is **not** primarily a transport-first system.
+The fork is best understood as a **primary-signal-first** system.
 
 Its differentiating value is:
 
@@ -56,12 +56,13 @@ When viewed through PDCA, the more complete form is:
 
 This means:
 
-- transports and signal adapters are secondary
+- primary signals and their operational meaning are central
+- signal providers are ingress mechanisms, not product identity
 - SOP is central
 - policy and governance are central
 - agentic cognition is valuable only when bounded by procedure, policy, and review
 
-This thesis is currently more important than transport or implementation detail choices.
+This thesis is currently more important than any specific provider or implementation detail choice.
 
 ## Invariant Product Principles
 
@@ -74,7 +75,7 @@ The following principles should remain true even as architecture, transports, an
 - evidence is part of the product value, not an afterthought
 - approvals and autonomy boundaries should stay explicit
 - the system should help close a PDCA loop, not only produce one-off reactions
-- transport should not define product identity
+- product identity should be defined by governed interpretation and response
 - signal type should matter more than delivery channel
 - cognition should be applied selectively, not maximally by default
 
@@ -82,9 +83,7 @@ These principles are intended to constrain future design choices without prematu
 
 ## What The Fork Is
 
-The fork is currently best understood as:
-
-**an internal runtime for governed response to heterogeneous primary signals, with optional evolution toward a product-grade edge and enterprise workflow runtime**
+The fork is currently best understood as an internal runtime for governed response to heterogeneous primary signals, with optional evolution toward a product-grade edge and enterprise workflow runtime.
 
 This means the fork may serve:
 
@@ -216,9 +215,7 @@ The exact autonomy boundary is use-case specific and should remain explicit.
 
 For this vision, `edge` is not limited to IoT hardware.
 
-`Edge` means:
-
-**the point of primary signal origination in a process**
+In this framing, `edge` means the point of primary signal origination in a process.
 
 Examples:
 
@@ -236,25 +233,33 @@ This definition keeps industrial, enterprise, and hybrid workflows within one co
 
 ## Signal-Provider Horizon
 
-The long-term architectural horizon is **signal-provider-first**, not transport-first.
+The long-term architectural horizon is **signal-provider-first**.
+
+Working distinctions:
+
+- `signal source`
+  - the process locus where a condition, request, event, or action originates
+- `primary signal`
+  - the first operationally meaningful event emitted from that source
+- `signal provider`
+  - the mechanism or system that brings that primary signal into the fork
 
 Examples of signal providers:
 
-- MQTT
 - webhook
 - cron
 - peripheral or board event
 - email
 - external API callback
+- MQTT adapter
 - Fledge or FledgePower-style edge/OT systems
 
 Key principle:
 
-- transport is not the product
-- ingestion is not the product
+- providers matter because they shape ingestion constraints and context
 - governed interpretation and response is the product value
 
-An additional strategic axis, separate from provider/transport, is **signal type**.
+An additional strategic axis, separate from source/provider, is **signal type**.
 
 Over time, the fork will likely need a clearer typology of signals, for example:
 
@@ -439,7 +444,7 @@ The following are explicitly not immediate goals unless a concrete use case forc
 
 - process-wide daemon singleton as a mandatory architecture rule
 - universal transport support
-- transport-first productization
+- premature commitment to any single provider-specific product shape
 - full persistence layer for every SOP run
 - full edge fleet orchestration
 - broad product release process overhead
