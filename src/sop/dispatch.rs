@@ -62,7 +62,6 @@ fn action_label(action: &SopRunAction) -> &'static str {
 /// 1. Lock → `match_trigger` → collect SOP names → drop lock
 /// 2. Lock → for each name: `start_run` → collect results → drop lock
 /// 3. Async (no lock): audit each started run
-#[tracing::instrument(skip(engine, audit), fields(source = %event.source, topic = ?event.topic))]
 pub async fn dispatch_sop_event(
     engine: &Arc<Mutex<SopEngine>>,
     audit: &SopAuditLogger,
@@ -250,7 +249,7 @@ impl SopCronCache {
             for trigger in &sop.triggers {
                 if let super::types::SopTrigger::Cron { expression } = trigger {
                     // Normalize 5-field crontab to 6-field (prepend seconds)
-                    let normalized = match crate::cron::schedule::normalize_expression(expression) {
+                    let normalized = match crate::cron::normalize_expression(expression) {
                         Ok(n) => n,
                         Err(e) => {
                             warn!(

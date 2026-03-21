@@ -106,6 +106,7 @@ mod security;
 mod service;
 mod skillforge;
 mod skills;
+mod sop;
 mod tools;
 mod tunnel;
 mod util;
@@ -116,7 +117,7 @@ use config::Config;
 // Re-export so binary modules can use crate::<CommandEnum> while keeping a single source of truth.
 pub use zeroclaw::{
     ChannelCommands, CronCommands, GatewayCommands, HardwareCommands, IntegrationCommands,
-    MigrateCommands, PeripheralCommands, ServiceCommands, SkillCommands,
+    MigrateCommands, PeripheralCommands, ServiceCommands, SkillCommands, SopCommands,
 };
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
@@ -434,6 +435,12 @@ Examples:
     Peripheral {
         #[command(subcommand)]
         peripheral_command: zeroclaw::PeripheralCommands,
+    },
+
+    /// Manage SOPs (standard operating procedures)
+    Sop {
+        #[command(subcommand)]
+        sop_command: zeroclaw::SopCommands,
     },
 
     /// Manage agent memory (list, get, stats, clear)
@@ -1290,6 +1297,8 @@ async fn main() -> Result<()> {
         } => integrations::handle_command(integration_command, &config),
 
         Commands::Skills { skill_command } => skills::handle_command(skill_command, &config),
+
+        Commands::Sop { sop_command } => sop::handle_command(sop_command, &config),
 
         Commands::Migrate { migrate_command } => {
             migration::handle_command(migrate_command, &config).await

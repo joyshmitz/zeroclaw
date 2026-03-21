@@ -197,6 +197,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         linkedin: crate::config::LinkedInConfig::default(),
         plugins: crate::config::PluginsConfig::default(),
         locale: None,
+        sop: crate::config::SopConfig::default(),
         verifiable_intent: crate::config::VerifiableIntentConfig::default(),
     };
 
@@ -618,6 +619,7 @@ async fn run_quick_setup_with_home(
         linkedin: crate::config::LinkedInConfig::default(),
         plugins: crate::config::PluginsConfig::default(),
         locale: None,
+        sop: crate::config::SopConfig::default(),
         verifiable_intent: crate::config::VerifiableIntentConfig::default(),
     };
 
