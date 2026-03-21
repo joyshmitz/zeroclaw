@@ -4736,6 +4736,115 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn process_message_stages_high_severity_incident_before_sop_dispatch() {
+        let dir = tempdir().unwrap();
+        let workspace_dir = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace_dir).unwrap();
+
+        let fixtures_dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sops");
+
+        let mut config = crate::config::Config {
+            workspace_dir,
+            ..crate::config::Config::default()
+        };
+        config.sop.enabled = true;
+        config.sop.sops_dir = Some(fixtures_dir.display().to_string());
+
+        let message = serde_json::json!({
+            "signal_type": "incident",
+            "incident_type": "operational_incident",
+            "severity": "high",
+            "summary": "Pump 7 failed pressure check",
+            "evidence": {
+                "photo": "attached"
+            }
+        })
+        .to_string();
+
+        let response = process_message(config, &message, None)
+            .await
+            .expect("governed incident response");
+
+        assert!(response.contains("Governed incident intake accepted."));
+        assert!(response.contains("Severity: high"));
+        assert!(response.contains("Response mode: stage_for_approval"));
+        assert!(response
+            .contains("SOP dispatch: not attempted because approval staging gates the first pass"));
+    }
+
+    #[tokio::test]
+    async fn process_message_escalates_when_sop_engine_is_disabled() {
+        let dir = tempdir().unwrap();
+        let workspace_dir = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace_dir).unwrap();
+
+        let config = crate::config::Config {
+            workspace_dir,
+            ..crate::config::Config::default()
+        };
+
+        let message = serde_json::json!({
+            "signal_type": "incident",
+            "incident_type": "operational_incident",
+            "severity": "normal",
+            "summary": "Pump 7 failed pressure check",
+            "evidence": {
+                "photo": "attached"
+            }
+        })
+        .to_string();
+
+        let response = process_message(config, &message, None)
+            .await
+            .expect("governed incident response");
+
+        assert!(response.contains("Governed incident intake accepted."));
+        assert!(response.contains("Response mode: escalate"));
+        assert!(response.contains(
+            "SOP dispatch: SOP engine is disabled on this runtime, so the incident must be routed for governed review"
+        ));
+    }
+
+    #[tokio::test]
+    async fn process_message_escalates_when_no_matching_sop_is_loaded() {
+        let dir = tempdir().unwrap();
+        let workspace_dir = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace_dir).unwrap();
+
+        let fixtures_dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sops");
+
+        let mut config = crate::config::Config {
+            workspace_dir,
+            ..crate::config::Config::default()
+        };
+        config.sop.enabled = true;
+        config.sop.sops_dir = Some(fixtures_dir.display().to_string());
+
+        let message = serde_json::json!({
+            "signal_type": "incident",
+            "incident_type": "quality_incident",
+            "severity": "normal",
+            "summary": "Batch 12 failed dimensional check",
+            "evidence": {
+                "inspection_report": "attached"
+            }
+        })
+        .to_string();
+
+        let response = process_message(config, &message, None)
+            .await
+            .expect("governed incident response");
+
+        assert!(response.contains("Governed incident intake accepted."));
+        assert!(response.contains("Case type: quality_incident"));
+        assert!(response.contains("Response mode: escalate"));
+        assert!(response
+            .contains("SOP dispatch: no matching webhook-triggered SOP is currently loaded"));
+    }
+
+    #[tokio::test]
     async fn execute_one_tool_does_not_panic_on_utf8_boundary() {
         let call_arguments = (0..600)
             .map(|n| serde_json::json!({ "content": format!("{}：tail", "a".repeat(n)) }))
