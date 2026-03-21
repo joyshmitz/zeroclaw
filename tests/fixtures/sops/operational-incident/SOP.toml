@@ -1,0 +1,10 @@
+[sop]
+name = "operational-incident-response"
+description = "Minimal operational incident SOP for governed seam integration tests"
+version = "1.0.0"
+priority = "high"
+execution_mode = "auto"
+
+[[triggers]]
+type = "webhook"
+path = "/governed/incident/operational_incident"

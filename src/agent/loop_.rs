@@ -4694,6 +4694,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn process_message_dispatches_structured_incident_to_matching_sop() {
+        let dir = tempdir().unwrap();
+        let workspace_dir = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace_dir).unwrap();
+
+        let fixtures_dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sops");
+
+        let mut config = crate::config::Config {
+            workspace_dir,
+            ..crate::config::Config::default()
+        };
+        config.sop.enabled = true;
+        config.sop.sops_dir = Some(fixtures_dir.display().to_string());
+
+        let message = serde_json::json!({
+            "signal_type": "incident",
+            "incident_type": "operational_incident",
+            "severity": "normal",
+            "summary": "Pump 7 failed pressure check",
+            "evidence": {
+                "photo": "attached",
+                "ticket": "INC-742"
+            }
+        })
+        .to_string();
+
+        let response = process_message(config, &message, None)
+            .await
+            .expect("governed incident response");
+
+        assert!(response.contains("Governed incident intake accepted."));
+        assert!(response.contains("Admission: structured_envelope"));
+        assert!(response.contains("Response mode: apply_sop"));
+        assert!(response.contains("Webhook path: /governed/incident/operational_incident"));
+        assert!(response.contains("SOP dispatch: matched SOP 'operational-incident-response'"));
+        assert!(
+            response.contains("step 1 'Capture incident context' is ready for bounded execution")
+        );
+    }
+
+    #[tokio::test]
     async fn execute_one_tool_does_not_panic_on_utf8_boundary() {
         let call_arguments = (0..600)
             .map(|n| serde_json::json!({ "content": format!("{}：tail", "a".repeat(n)) }))
