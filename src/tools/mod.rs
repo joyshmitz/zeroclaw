@@ -85,6 +85,7 @@ pub mod text_browser;
 pub mod tool_search;
 pub mod traits;
 pub mod verifiable_intent;
+pub mod weather_tool;
 pub mod web_fetch;
 mod web_search_provider_routing;
 pub mod web_search_tool;
@@ -160,6 +161,7 @@ pub use traits::Tool;
 #[allow(unused_imports)]
 pub use traits::{ToolResult, ToolSpec};
 pub use verifiable_intent::VerifiableIntentTool;
+pub use weather_tool::WeatherTool;
 pub use web_fetch::WebFetchTool;
 pub use web_search_tool::WebSearchTool;
 pub use workspace_tool::WorkspaceTool;
@@ -344,6 +346,7 @@ pub fn all_tools_with_runtime(
             workspace_dir.to_path_buf(),
         )),
         Arc::new(CalculatorTool::new()),
+        Arc::new(WeatherTool::new()),
     ];
 
     if matches!(
