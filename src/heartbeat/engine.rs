@@ -249,7 +249,7 @@ impl HeartbeatEngine {
             .filter(HeartbeatTask::is_runnable)
             .collect();
         // Sort by priority descending (High > Medium > Low)
-        tasks.sort_by(|a, b| b.priority.cmp(&a.priority));
+        tasks.sort_by_key(|t| std::cmp::Reverse(t.priority));
         Ok(tasks)
     }
 
