@@ -83,7 +83,7 @@ These principles are intended to constrain future design choices without prematu
 
 ## What The Fork Is
 
-The fork is currently best understood as an internal runtime for governed response to heterogeneous primary signals, with optional evolution toward a product-grade edge and enterprise workflow runtime.
+The fork should now be understood as an internal-first implementation path toward a governed response runtime for heterogeneous primary signals.
 
 This means the fork may serve:
 
@@ -92,7 +92,10 @@ This means the fork may serve:
 - operator-assist workflows
 - future edge/product scenarios
 
-It does **not** yet imply that the fork is already a production orchestration substrate.
+The product identity is not “internal tooling” as such.
+Internal runtime use is the first product form because it is the fastest path to proving signal emergence, governed interpretation, SOP-bounded response, and PDCA feedback under real conditions.
+
+It does **not** imply that the system should become a generic orchestration substrate or a transport-defined platform.
 
 ## Actors
 
@@ -696,9 +699,9 @@ Outside the product boundary by default:
 - full system-of-record ownership for domain truth
 - arbitrary cognition without a governed decision need
 
-Seen through this lens, the strongest current candidate for the product core is:
+Seen through this lens, the product core is:
 
-`a runtime for signal-class-specific emergence, governed interpretation, constrained response, and auditable PDCA feedback`
+`a runtime for signal-class-specific emergence, governed case formation, governed interpretation, constrained response, and auditable PDCA feedback`
 
 ## Operational Meaning
 
@@ -797,6 +800,115 @@ It does not imply unconstrained self-modifying behavior.
 | Edge agent in product | local device or gateway event | local constrained response needed | execute allowed local SOP step, escalate when needed, record decision trail | `Do/Check -> Act` | `product` |
 | Mixed-signal response hub | technical, human, business, system events | need one governed response model | normalize, route, execute SOP, audit, escalate, revise process | full loop | `product seed` |
 
+## Governed Case Semantics
+
+The product should not be modeled as “signals in, actions out” alone.
+The central operational unit should be the **governed case**.
+
+A governed case is the bounded tracked situation created when one or more primary signals require governed handling.
+It binds together:
+
+- relevant signals
+- context
+- interpretation
+- applicable SOP and policy
+- evidence
+- approvals
+- chosen response mode
+- actions and outcomes
+- PDCA feedback
+
+This creates an important distinction:
+
+- a raw event is not yet a primary signal
+- a primary signal is not yet a governed case
+- a governed case is not yet an action
+
+A signal should open a new governed case when it introduces a distinct operational situation that requires one or more of:
+
+- response-mode selection
+- evidence collection or sufficiency tracking
+- ownership or routing
+- approval tracking
+- bounded execution
+- explicit closure or escalation
+
+A signal should update an existing governed case when it:
+
+- adds evidence
+- changes risk or urgency
+- confirms or falsifies the current interpretation
+- advances or blocks the current procedure
+- records approval, rejection, execution, or outcome
+- resolves or closes the situation
+
+A signal should remain observation-only when, under the current `Plan`, it does not materially change the response envelope and does not justify case creation.
+
+This case-centric view is important because it gives the product a stronger identity than either:
+
+- a generic event router
+- a generic workflow engine
+- an LLM assistant sitting on top of messages
+
+The runtime’s real work is not merely receiving signals.
+It is deciding when signals create or transform governed cases and then carrying those cases through bounded response and feedback.
+
+## Initial Product Form
+
+The first product form should be treated as:
+
+- an internal-first governed response runtime
+- centered on enterprise and operational workflows
+- deployable centrally or near the edge when useful
+- capable of handling technical, operational, and business-originated primary signals within one model
+
+This is the right first product form because it matches the current anchor scenarios and the current strongest sources of value:
+
+- SOP-bounded handling
+- approval and autonomy control
+- evidence and audit trail
+- selective cognition
+- PDCA feedback into improved procedure and policy
+
+This also clarifies what the first product form is **not**:
+
+- not a telemetry platform first
+- not an edge fleet manager first
+- not a generic workflow builder first
+- not an inbox copilot first
+- not a transport integration catalog first
+
+Edge deployment remains compatible with this definition.
+It is a deployment locus and runtime topology choice, not the thing that defines product identity.
+
+## Final Product Definition
+
+The product should be defined as:
+
+`a PDCA-governed response runtime that turns heterogeneous primary signals into governed cases, determines meaning and allowed response under SOP, policy, evidence, and autonomy constraints, coordinates bounded human/agent/runtime action, and feeds auditable outcomes back into Plan`
+
+In shorter form:
+
+`signal-class-specific emergence -> governed case -> bounded response -> auditable PDCA feedback`
+
+This definition implies that the product core includes:
+
+- signal-class-specific emergence logic
+- case formation and case updating
+- governed interpretation
+- response-mode selection
+- bounded execution or staged action
+- evidence and audit
+- feedback into SOP, policy, thresholds, and autonomy design
+
+This definition also implies that the product is **not** defined by:
+
+- any single transport
+- any single provider ecosystem
+- whether runtime logic sits centrally or near the edge
+- whether cognition is present on every signal
+- ownership of every surrounding workflow or system-of-record boundary
+
 ## Immediate Anchor Scenarios
 
 The most useful anchor scenarios right now are:
@@ -812,7 +924,7 @@ Why these:
 - they do not require immediate commitment to full product architecture
 - they exercise SOP in realistic ways
 
-These anchor scenarios should guide future narrowing of the plan.
+These anchor scenarios should now be treated as validation scenarios for the chosen product definition.
 They are more important than trying to prematurely optimize for a single final architecture.
 
 ## Current Non-Goals
@@ -878,16 +990,16 @@ Revisit this document when one of these becomes true:
 
 ## Working Conclusion
 
-At this stage, the fork should be treated as:
+The planning cycle has now reached a usable final product definition.
 
-- more than a playground
-- not yet a full product runtime
-- a practical internal runtime for PDCA-governed response to primary signals
+The fork should be treated as:
 
-This is enough clarity to guide near-term development without forcing premature architecture.
+- the implementation path for an internal-first governed response runtime
+- centered on signal-class-specific emergence, governed cases, bounded response, and auditable PDCA feedback
+- broader than a single transport, inbox workflow, or edge integration
+- narrower than a generic orchestration platform or universal event stack
 
-The current phase is idea formation and direction-setting.
-Over-inclusiveness in the plan is acceptable at this stage if it preserves important strategic possibilities that may later be narrowed.
+This is enough product clarity to move from idea formation into architecture and implementation planning without pretending the surrounding ecosystem must be replaced.
 
 ## Sources
 
