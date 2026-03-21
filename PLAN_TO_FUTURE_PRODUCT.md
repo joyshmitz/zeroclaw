@@ -273,6 +273,161 @@ Over time, the fork will likely need a clearer typology of signals, for example:
 
 This typology is not yet fully defined, but it is expected to matter more than any single transport choice.
 
+## Signal Emergence Gates
+
+Not every raw event emitted by a source should count as a primary signal for the fork.
+
+This distinction matters most in high-volume environments.
+A sensor, meter, controller, or gateway may emit observations continuously, but the runtime does not gain value from treating each raw emission as a first-class governed event.
+
+The working principle should be:
+
+- raw telemetry is not automatically a primary signal
+- a primary signal emerges only when some condition makes it operationally meaningful
+- emergence criteria belong to `Plan` because they define what deserves `Check`
+
+In practical terms, a primary signal may emerge through one or more gates such as:
+
+- threshold breach
+- state transition
+- persistence over time
+- rate-of-change or drift beyond tolerance
+- correlation across multiple observations
+- missing expected event or silence
+- explicit human submission
+- policy-defined exception or priority trigger
+
+This keeps the fork centered on governed response rather than raw transport volume.
+
+For many environments, especially device or gateway-heavy ones, the better model is:
+
+`stream of observations -> emergence gate -> primary signal -> governed interpretation`
+
+This reduces noise and preserves the idea that the fork is not primarily a telemetry firehose processor.
+
+## Temporal Semantics Of Emergence
+
+For many instrument, gateway, and controller-originated signals, emergence should be evaluated over time rather than on a single raw observation.
+
+This makes your intuition directionally correct:
+for some signal types, `Plan` should define a time window in which observations are analyzed for change, persistence, drift, or trend before a primary signal is emitted.
+
+However, this should not become a universal rule for all signals.
+The better framing is:
+
+- each signal type may have its own temporal semantics
+- some signals are instantaneous
+- some are windowed
+- some are stateful across a rolling history
+- some emerge from absence or silence rather than presence
+
+A useful working distinction is:
+
+- instantaneous emergence
+  - explicit human submission
+  - approval or rejection event
+  - hard safety stop
+  - direct policy-defined exception
+- windowed emergence
+  - threshold breach sustained over a period
+  - drift across successive measurements
+  - unstable oscillation or flapping
+  - rate-of-change beyond tolerance
+- stateful emergence
+  - repeated weak deviations that become significant cumulatively
+  - fault patterns that only matter across multiple episodes
+- absence-based emergence
+  - expected heartbeat missing
+  - required confirmation not received
+  - expected follow-up event absent within a policy-defined interval
+
+For windowed signal types, `Plan` should define emergence semantics such as:
+
+- evaluation window
+- aggregation or smoothing method
+- baseline or expected range
+- trend or drift criteria
+- persistence requirement
+- hysteresis or cooldown behavior
+- deduplication and re-alert conditions
+
+This matters because the product value is not in forwarding every reading.
+It is in deciding when a pattern has become operationally meaningful enough to deserve governed interpretation.
+
+In many deployments, especially high-volume edge environments, these temporal emergence rules may run close to the source, including at gateway level.
+That is acceptable and often desirable.
+But it still should not redefine product identity:
+the gateway may host emergence logic, while the fork remains centered on meaning, governance, SOP, and response.
+
+## Transport-Neutral Cognitive Admission
+
+The decision to invoke heavier cognition should be treated as a separate gate from signal emergence.
+
+In other words:
+
+- not every raw event becomes a primary signal
+- not every primary signal deserves cognitive interpretation
+- not every cognitive interpretation should involve an LLM
+
+The admission question is not only “is cognition affordable”.
+It is “does cognition materially improve the governed response enough to justify its operational cost”.
+
+A useful admission lens is:
+
+- ambiguity
+  - is the meaning unclear without richer interpretation
+- unstructuredness
+  - does the signal arrive in natural language, weak schema, or messy mixed context
+- consequence
+  - would better interpretation materially reduce risk of wrong routing or wrong action
+- novelty
+  - is this poorly covered by existing SOP, rules, or historical patterns
+- evidence gap
+  - does interpretation need synthesis across scattered context before action can be governed
+
+This keeps cognition subordinate to operational need rather than source prestige.
+
+The default posture should therefore be:
+
+- signal-type-specific deterministic rules first
+- richer contextual interpretation second
+- cognitive escalation only when lower-cost rules leave meaningful uncertainty
+
+This means the cheapest useful computation for a given signal type should usually be preferred as the first gate.
+That includes threshold rules, temporal window rules, drift detection, state transition rules, silence detection, and other bounded evaluators defined by `Plan`.
+
+An email often justifies cognition more often than device telemetry because it is frequently unstructured and compressed into human language.
+But email should still not be assumed to require cognition by default:
+
+- spam
+- auto-replies
+- routine structured requests
+- obvious known intents
+
+may all be handled without heavy interpretation.
+
+Likewise, device and gateway signals usually justify cognition less often because they are structured and high-volume.
+But they should not be excluded categorically:
+
+- multi-signal anomalies
+- repeated near-threshold drift
+- ambiguous fault clusters
+- incidents requiring explanation or recommendation
+
+may justify cognitive escalation.
+
+So the correct principle is not:
+
+`email -> cognition`
+
+or:
+
+`gateway -> no cognition`
+
+but rather:
+
+`signal significance + ambiguity + consequence -> cognition if justified`
+
 ## System Boundary
 
 The fork should currently be treated primarily as:
@@ -409,6 +564,228 @@ This helps preserve:
 - reliability
 - bounded cost
 - architectural clarity
+
+## Cost Is Not The Only Gate
+
+Cheap versus expensive model calls are relevant, but they are not the main conceptual boundary.
+
+Even a cheap LLM invocation can be operationally expensive if it adds:
+
+- latency at the wrong point in a workflow
+- nondeterminism where a rule would be safer
+- audit burden without decision-value
+- operator confusion or review fatigue
+- broader policy or privacy exposure
+- more surface area for subtle misinterpretation
+
+The inverse is also true:
+an expensive cognitive step may be justified if it materially reduces error, improves routing, protects autonomy boundaries, or prevents repeated human confusion in high-value cases.
+
+So the core question should be:
+
+`is cognition warranted here`
+
+not merely:
+
+`is cognition cheap enough`
+
+This supports a stronger design posture:
+
+- use cheap deterministic gates first
+- escalate to richer interpretation only when those gates leave meaningful uncertainty
+- treat cognition as selective operational leverage, not ambient background processing
+
+Applied back to signal design, this means:
+
+- the first evaluator should usually be the cheapest rule set that is appropriate for that signal type
+- signal-type-specific emergence logic is a product asset, not an implementation detail
+- LLM usage should usually begin where deterministic signal-type rules stop being sufficient
+
+## Mathematical Framing
+
+Mathematics should be introduced here as a language for formalizing boundaries, not as a substitute for product thinking.
+
+Its strongest use in this fork is to make the following questions precise:
+
+- when raw observations become a primary signal
+- what uncertainty remains after interpretation
+- which response modes are allowed under policy and autonomy constraints
+- what evidence is sufficient for escalation, action, or closure
+- when outcomes justify `update Plan`
+
+A useful minimal formal core is:
+
+- `E_k(history, state, plan) -> primary_signal | nil`
+  - emergence function for signal class `k`
+  - turns raw observations or events into an operationally meaningful signal only when emergence criteria are met
+- `I_k(signal, context, plan) -> meaning, risk, uncertainty`
+  - interpretation function for signal class `k`
+  - produces the operational meaning needed for governed response
+- `G(meaning, risk, uncertainty, evidence, policy, autonomy) -> response_mode`
+  - governance function
+  - determines whether the correct response is observation, evidence request, routing, staged action, constrained execution, or escalation
+- `U(history, outcomes, plan) -> proposed_plan_change | nil`
+  - feedback/update function
+  - determines when repeated patterns or outcomes justify changing SOP, policy, thresholds, evidence requirements, or autonomy boundaries
+
+This is intentionally minimal.
+It is enough to make the product core more exact without prematurely hard-coding one architectural style or one mathematical worldview.
+
+## Mathematical Regimes By Signal Class
+
+The strongest direction is not one universal formula for everything.
+It is a small set of mathematical regimes matched to the nature of each signal class.
+
+Examples:
+
+- continuous or windowed observations
+  - moving windows
+  - smoothing or aggregation
+  - drift or trend detection
+  - rate-of-change checks
+  - control limits
+  - hysteresis
+- discrete state transitions
+  - finite-state logic
+  - allowed transition predicates
+  - guard conditions
+- approval or gate events
+  - boolean policy logic
+  - authorization predicates
+  - explicit threshold and signature requirements
+- request or inbox-style signals
+  - classification
+  - confidence thresholds
+  - routing scores
+  - ambiguity flags
+- silence or missing-event signals
+  - timeout windows
+  - expected-arrival intervals
+  - missing-heartbeat detection
+- repeated incidents and outcomes
+  - recurrence rates
+  - trend and control-chart style thinking
+  - feedback thresholds for `update Plan`
+
+This means the right pattern is:
+
+`signal class -> suitable mathematical regime -> emergence rule -> governed response envelope`
+
+That is stronger than either extreme:
+
+- one grand universal formula for all signals
+- a completely ad hoc bespoke logic for every individual case
+
+## Product Boundary Clarified By Math
+
+Mathematical framing helps clarify what is inside the product boundary and what is merely adjacent.
+
+Inside the product boundary by default:
+
+- emergence logic
+- interpretation and uncertainty handling
+- governance predicates
+- evidence sufficiency rules
+- response-mode selection
+- feedback thresholds for `update Plan`
+
+Outside the product boundary by default:
+
+- raw transport mechanics for every possible provider
+- full telemetry retention or historian behavior
+- full system-of-record ownership for domain truth
+- arbitrary cognition without a governed decision need
+
+Seen through this lens, the strongest current candidate for the product core is:
+
+`a runtime for signal-class-specific emergence, governed interpretation, constrained response, and auditable PDCA feedback`
+
+## Operational Meaning
+
+Meaning should be understood here as **operational meaning**, not semantic richness for its own sake.
+
+A signal has enough meaning when the system can determine:
+
+- what kind of situation it represents
+- whether it opens a new governed case, updates an existing one, or only enriches context
+- what process context and ownership domain it belongs to
+- which procedure, policy, or gate may apply
+- what risk, urgency, and autonomy envelope applies
+- what evidence is already present and what evidence is still missing
+
+In this framing, meaning matters because it changes the response envelope.
+If interpretation does not change routing, procedure selection, evidence requirements, approval needs, or allowed action, it is not yet strong product-value interpretation.
+
+## Working Signal-Type Lens
+
+The signal-type axis should remain intentionally small until repeated real workflows force refinement.
+
+A useful current working set is:
+
+- `observation`
+  - state, measurement, or condition report
+  - may remain in `Check` unless thresholds or policy elevate it
+- `deviation`
+  - anomaly, failed check, or out-of-bounds condition
+  - usually requires classification, evidence, and possible corrective flow
+- `request`
+  - inbound demand for service, decision, workflow initiation, or action preparation
+  - typically requires routing, ownership, and procedure selection
+- `decision/gate event`
+  - approval, rejection, Go/No-Go, or other authorization-relevant transition
+  - changes what actions are now allowed
+- `outcome event`
+  - completion, failure, or result of a governed step
+  - may close a case or trigger `update Plan`
+
+This is not a final taxonomy.
+It is a minimal working lens that covers current anchor scenarios without overfitting to transport.
+
+An inbound command should usually be treated first as a signal requiring interpretation and governance, not as self-justifying execution.
+
+## Governed Response Modes
+
+Not every meaningful signal should trigger the same kind of response.
+
+A useful response lens is:
+
+- record and observe
+- enrich or request evidence
+- route or assign
+- recommend a procedure or next step
+- stage an action for approval
+- execute a pre-authorized constrained step
+- initiate plan review
+
+The correct response mode should be shaped by signal type, context, risk, policy, and autonomy boundaries.
+
+In many cases, the correct governed response is not immediate motion.
+It may be explicit non-action, observation, or evidence collection with a clear decision trail.
+
+## What `update Plan` Means
+
+The PDCA loop in this fork should not end at response execution.
+
+`update Plan` should be understood as governed change to the artifacts that shape future response, such as:
+
+- SOP content or branching
+- policy rules
+- thresholds or gate criteria
+- evidence requirements
+- routing or ownership rules
+- autonomy boundaries
+
+Plan update becomes justified when repeated signals or outcomes expose:
+
+- missing or ambiguous SOP coverage
+- repeated misclassification or wrong routing
+- unstable thresholds or noisy alerts
+- approval bottlenecks or autonomy mismatch
+- evidence gaps that block reliable action
+- divergence between written procedure and actual successful practice
+
+This keeps learning concrete, reviewable, and bounded.
+It does not imply unconstrained self-modifying behavior.
 
 ## Scenario Table
 
