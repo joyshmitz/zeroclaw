@@ -3274,7 +3274,7 @@ pub(crate) async fn run_tool_call_loop(
         for ((idx, call), outcome) in executable_indices
             .iter()
             .zip(executable_calls.iter())
-            .zip(executed_outcomes.into_iter())
+            .zip(executed_outcomes)
         {
             runtime_trace::record_event(
                 "tool_call_result",
@@ -4305,7 +4305,7 @@ pub async fn process_message(
                     governed_case.to_sop_event(message),
                 )
                 .await;
-                crate::sop::dispatch::process_headless_results(&results).await;
+                crate::sop::dispatch::process_headless_results(&results);
                 Some(summarize_dispatch_results(&results))
             } else {
                 Some(disabled_sop_summary())
@@ -4683,9 +4683,13 @@ mod tests {
             ..crate::config::Config::default()
         };
 
-        let response = process_message(config, "INCIDENT: pump 7 failed pressure check", None)
-            .await
-            .expect("governed incident response");
+        let response = Box::pin(process_message(
+            config,
+            "INCIDENT: pump 7 failed pressure check",
+            None,
+        ))
+        .await
+        .expect("governed incident response");
 
         assert!(response.contains("Governed incident intake accepted."));
         assert!(response.contains("Ingress: gateway_webhook"));
@@ -4721,7 +4725,7 @@ mod tests {
         })
         .to_string();
 
-        let response = process_message(config, &message, None)
+        let response = Box::pin(process_message(config, &message, None))
             .await
             .expect("governed incident response");
 
@@ -4762,7 +4766,7 @@ mod tests {
         })
         .to_string();
 
-        let response = process_message(config, &message, None)
+        let response = Box::pin(process_message(config, &message, None))
             .await
             .expect("governed incident response");
 
@@ -4795,7 +4799,7 @@ mod tests {
         })
         .to_string();
 
-        let response = process_message(config, &message, None)
+        let response = Box::pin(process_message(config, &message, None))
             .await
             .expect("governed incident response");
 
@@ -4833,7 +4837,7 @@ mod tests {
         })
         .to_string();
 
-        let response = process_message(config, &message, None)
+        let response = Box::pin(process_message(config, &message, None))
             .await
             .expect("governed incident response");
 
