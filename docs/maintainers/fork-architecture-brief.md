@@ -1,6 +1,6 @@
 # Fork Architecture Brief
 
-Timestamp: 2026-03-21T13:50:25+02:00
+Timestamp: 2026-03-22T10:02:37+02:00
 
 ## Status
 
@@ -10,6 +10,8 @@ This document is the first architecture bridge between:
 - the current upstream-shaped ZeroClaw codebase
 
 It exists because the product thesis is now coherent, but is not yet the controlling architectural frame of the repository.
+
+This brief should now be read together with [formal-core-implementation-map.md](formal-core-implementation-map.md), which records the current code-facing status of the formal core and the remaining gap to architectural convergence.
 
 ## Purpose
 
@@ -32,6 +34,8 @@ This brief is constrained by the current fork product definition:
 - SOP is the current core of `Plan`
 - signal type matters more than delivery channel
 - cognition should be selective, not maximal by default
+- governed response is better described by a `response_envelope` than by a single response mode
+- `update Plan` should become reviewable change admission, not silent runtime self-mutation
 
 It is also shaped by the fork audit conclusion current at the time this document version was written:
 
@@ -61,14 +65,14 @@ The fork architecture should be oriented around this pipeline:
 2. signal emergence / normalization
 3. signal classification and operational meaning
 4. governed case formation or case update
-5. pre-planning decision
+5. response-envelope decision
 6. bounded response execution
 7. evidence and audit capture
-8. PDCA feedback into `Plan`
+8. PDCA feedback and reviewable plan-change proposal
 
 In compact form:
 
-`ingress -> meaning -> governed case -> bounded response -> evidence -> update Plan`
+`ingress -> meaning -> governed case -> response envelope -> bounded response -> evidence -> PDCA feedback`
 
 This pipeline is architectural, not transport-specific.
 
@@ -103,11 +107,12 @@ Purpose:
 
 - open a governed case
 - update an existing governed case
-- bind context, SOP, evidence, approvals, and response mode
+- bind context, SOP, evidence, approvals, and response envelope
+- become the durable operational unit of the fork rather than a transport-local draft
 
 This seam should become the central operational unit of the fork.
 
-### 3. Pre-Planning Decision Seam
+### 3. Pre-Planning / Response-Envelope Seam
 
 Location in flow:
 
@@ -116,7 +121,8 @@ Location in flow:
 
 Purpose:
 
-- decide whether the next step is:
+- derive the governed response envelope for the case
+- make explicit which bounded next steps are currently allowed, such as:
   - observe only
   - request evidence
   - route or assign
@@ -124,6 +130,7 @@ Purpose:
   - stage for approval
   - permit constrained execution
   - escalate to richer cognition
+- bind evidence requirements, approval conditions, allowed actions, escalation paths, and closure conditions before generic motion
 
 This seam is where selective cognition becomes architectural rather than rhetorical.
 
@@ -138,6 +145,7 @@ Purpose:
 - enforce autonomy boundaries
 - capture decision path
 - capture evidence sufficiency
+- preserve the evidence and approval state that justifies the current response envelope
 - preserve auditability
 
 Without this seam, the fork collapses back into generic tool-calling behavior.
@@ -150,8 +158,8 @@ Location in flow:
 
 Purpose:
 
-- decide whether outcome only closes a case
-- or whether it should also trigger `update Plan`
+- decide whether outcome is `close_only`
+- or whether it should emit a reviewable `plan_change_proposal`
 - connect repeated outcomes back to SOP, policy, thresholds, routing, or autonomy
 
 This seam turns governed response into a loop instead of a one-off reaction.
@@ -191,12 +199,12 @@ This is why the repo still behaves architecturally like an upstream LLM runtime.
 Current best fit:
 
 - core of `Plan`
-- response-bounding mechanism
+- current primary bounded-execution substrate once the response envelope permits SOP handling
 - later-stage procedure execution and approval/gating logic
 
 Current problem:
 
-- SOP exists in the repo but not yet as the natural continuation of signal classification and governed case handling
+- SOP exists in the repo but not yet as the natural continuation of signal classification, governed case handling, and response-envelope derivation
 - it is wired in, but not yet architecturally seated in the canonical pipeline
 
 ### Hands
@@ -228,6 +236,7 @@ Current fit:
 - governance seam
 - evidence seam
 - audit seam
+- partial substrate for a future response envelope
 
 These are compatible with the fork thesis, but need to be addressed explicitly through the fork pipeline rather than treated as generic runtime accessories.
 
@@ -245,6 +254,44 @@ This tension is still recoverable because:
 - the substrate is still reusable
 
 But it will become expensive if the fork keeps adding product-definition detail without creating fork-owned seams.
+
+The current implementation map makes the present code-facing reality sharper:
+
+- the repo already proves one narrow governed seam
+- that seam is best described as `incident-scoped admission -> deterministic draft -> SOP dispatch -> audit`
+- this is enough to validate first entry into runtime
+- it is not yet enough to claim full architectural convergence
+
+## Architectural Convergence Framing
+
+Architectural convergence should be treated here as a milestone contract, not as a vague aspiration.
+
+This brief follows the convergence framing in [`PLAN_TO_FUTURE_PRODUCT.md`](/data/projects/zeroclaw/PLAN_TO_FUTURE_PRODUCT.md) and the code-facing grounding in [formal-core-implementation-map.md](formal-core-implementation-map.md).
+
+### Milestone A: Semantic Convergence
+
+Meaning:
+
+- every governed-capable ingress path evaluates an equivalent admission, case, and response-envelope contract before generic motion
+- this is semantic parity, not a demand that every ingress path share one identical code path
+
+### Milestone B: Durable Case Convergence
+
+Meaning:
+
+- governed case becomes a durable operational unit
+- case identity and history outlive transport-local messages, webhook calls, and individual SOP runs
+
+### Milestone C: PDCA Convergence
+
+Meaning:
+
+- meaningful outcomes record explicit feedback disposition
+- the runtime can emit reviewable `plan_change_proposal` artifacts rather than leaving PDCA only in prose or logs
+
+Current status:
+
+- the implementation map confirms that none of A, B, or C are fully reached yet
 
 ## Conflict Surface Implications
 
@@ -265,16 +312,17 @@ It is not a stable long-term architecture.
 
 ## First Architecture Moves
 
-This brief does **not** define code changes yet.
-It only defines the required next architectural moves:
+This brief does **not** define code changes line-by-line.
+It defines the required next architectural moves:
 
 1. define the signal classification seam
-2. define the governed case seam
-3. define the pre-planning decision seam
-4. map SOP, autonomy, evidence, and approvals onto those seams
-5. define which seams are fork-owned and which remain upstream-owned
+2. define the governed case seam as a durable operational unit
+3. define the response-envelope seam before generic motion
+4. map SOP, autonomy, evidence, approvals, and closure conditions onto that envelope
+5. define the PDCA feedback seam so outcomes can emit reviewable `plan_change_proposal` artifacts
+6. define which seams are fork-owned and which remain upstream-owned
 
-If those five things become explicit, the fork thesis stops being document-only.
+If those six things become explicit, the fork thesis stops being document-only.
 
 ## Immediate Non-Goals
 
@@ -287,7 +335,7 @@ This brief does not attempt to:
 - refactor all conflict surfaces immediately
 - turn the fork into an orchestration platform first
 
-## Required Follow-On Artifacts
+## Required Follow-On And Alignment Artifacts
 
 This brief makes the following next artifacts mandatory:
 
@@ -297,6 +345,9 @@ This brief makes the following next artifacts mandatory:
 2. Conflict Surface Map
    - document the repeated fork/upstream collision zones
    - distinguish tactical conflicts from ownership problems
+3. Formal Core Implementation Map
+   - map each formal-core function to the current code seams
+   - make the remaining distance to Milestones A, B, and C explicit
 
 ## Revisit Triggers
 
@@ -311,6 +362,6 @@ Revisit this brief when one of these becomes true:
 
 The architectural task is not to replace upstream.
 
-It is to insert a fork-owned governed-response layer between generic runtime ingress and generic runtime action.
+It is to insert a fork-owned governed-response layer between generic runtime ingress and generic runtime action, and to carry that layer through semantic convergence, durable case handling, and PDCA closure.
 
 Until that layer exists, the fork thesis remains correct but only partially operationalized.

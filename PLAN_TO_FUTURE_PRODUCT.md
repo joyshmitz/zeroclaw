@@ -505,6 +505,18 @@ The fork should **not** be assumed, by default, to be:
 
 In many realistic deployments, domain truth may live elsewhere while the fork provides governed interpretation and response.
 
+Within that boundary, the fork may still own important runtime state such as:
+
+- governed case state
+- evidence and approval state
+- response envelopes and bounded execution state
+- audit trails
+- plan-change proposals
+
+This means the fork may record the governed handling of a situation without becoming the system of record for every surrounding domain object.
+Some things should be stored here because they define governed response.
+Other things should be referenced from external systems because they define broader domain truth.
+
 ## Role Relative To Signal Ecosystems
 
 Systems like Fledge/FledgePower are useful reference points.
@@ -663,74 +675,49 @@ Applied back to signal design, this means:
 
 ## Mathematical Framing
 
-Mathematics should be introduced here as a language for formalizing boundaries, not as a substitute for product thinking.
+Mathematics is only warranted here when it formalizes a concrete operational question in the product pipeline.
+It is not here to replace product thinking or to signal rigor by itself.
 
-Its strongest use in this fork is to make the following questions precise:
+The only acceptable goals for formalization in this document are:
 
-- when raw observations become a primary signal
-- what uncertainty remains after interpretation
-- which response modes are allowed under policy and autonomy constraints
-- what evidence is sufficient for escalation, action, or closure
-- when outcomes justify `update Plan`
+- boundary
+- transition
+- sufficiency
+- feedback admission
+
+If a mathematical expression is not attached to one of those four goals, it does not belong in this plan.
 
 A useful minimal formal core is:
 
-- `E_k(history, state, plan) -> primary_signal | nil`
+- `Emergence_k(observations, state, plan) -> primary_signal | observation_only`
   - emergence function for signal class `k`
-  - turns raw observations or events into an operationally meaningful signal only when emergence criteria are met
-- `I_k(signal, context, plan) -> meaning, risk, uncertainty`
+  - turns raw observations into a primary signal only when emergence criteria are met
+  - keeps the negative branch explicit: not every observation deserves governed handling
+- `Interpret_k(primary_signal, context, plan) -> interpretation`
   - interpretation function for signal class `k`
   - produces the operational meaning needed for governed response
-- `G(meaning, risk, uncertainty, evidence, policy, autonomy) -> response_mode`
-  - governance function
-  - determines whether the correct response is observation, evidence request, routing, staged action, constrained execution, or escalation
-- `U(history, outcomes, plan) -> proposed_plan_change | nil`
-  - feedback/update function
-  - determines when repeated patterns or outcomes justify changing SOP, policy, thresholds, evidence requirements, or autonomy boundaries
-
-In product terms, these functions operate over the lifecycle of a governed case, even when the case object is not yet modeled explicitly in the notation above.
-Case formation and case update are therefore part of the conceptual flow from `E_k` and `I_k` through `G` and into `U`, and should be formalized further if the mathematical layer is later expanded.
+  - cognition admission lives here as an explicit sub-decision rather than as a separate core function
+- `CaseBind(signal, interpretation, case_store, plan) -> open | update | observation_only`
+  - determines whether a signal opens a governed case, updates one, or falls back to observation-only under current plan
+- `Envelope(case, evidence, policy, autonomy, plan) -> response_envelope`
+  - determines the governed response envelope rather than only one response mode
+  - the envelope may include allowed response modes, evidence requirements, approval conditions, allowed actions, escalation paths, and closure conditions
+- `Execute(case, response_envelope, runtime_inputs) -> outcome`
+  - executes or stages only what the envelope allows
+- `Feedback(case_history, outcome_history, plan) -> plan_change_proposal | nil`
+  - determines when repeated patterns justify a reviewable proposal to update SOP, policy, thresholds, evidence requirements, routing, or autonomy boundaries
 
 This is intentionally minimal.
 It is enough to make the product core more exact without prematurely hard-coding one architectural style or one mathematical worldview.
+Not every valid formalization deserves core status.
 
 ## Mathematical Regimes By Signal Class
 
 The strongest direction is not one universal formula for everything.
-It is a small set of mathematical regimes matched to the nature of each signal class.
+It is a small set of mathematical regimes matched to signal class and operational question.
+The validation matrix below is now the canonical mapping from operational question to suitable regime.
 
-Examples:
-
-- continuous or windowed observations
-  - moving windows
-  - smoothing or aggregation
-  - drift or trend detection
-  - rate-of-change checks
-  - control limits
-  - hysteresis
-- discrete state transitions
-  - finite-state logic
-  - allowed transition predicates
-  - guard conditions
-- approval or gate events
-  - boolean policy logic
-  - authorization predicates
-  - explicit threshold and signature requirements
-- request or inbox-style signals
-  - classification
-  - confidence thresholds
-  - routing scores
-  - ambiguity flags
-- silence or missing-event signals
-  - timeout windows
-  - expected-arrival intervals
-  - missing-heartbeat detection
-- repeated incidents and outcomes
-  - recurrence rates
-  - trend and control-chart style thinking
-  - feedback thresholds for `update Plan`
-
-This means the right pattern is:
+This means the working pattern is:
 
 `signal class -> suitable mathematical regime -> emergence rule -> governed response envelope`
 
@@ -739,17 +726,63 @@ That is stronger than either extreme:
 - one grand universal formula for all signals
 - a completely ad hoc bespoke logic for every individual case
 
-## Product Boundary Clarified By Math
+## Validation Matrix
 
-Mathematical framing helps clarify what is inside the product boundary and what is merely adjacent.
+The matrix below is broader than the formal core.
+A concept belongs in the core only when it defines a primary runtime boundary, transition, envelope, execution step, or feedback-admission rule.
+Cross-cutting concerns may remain explicit sub-decisions or boundary notes without becoming separate core functions.
+
+| Operational question | Suitable regime | Placement note | Anti-slop warning |
+|---|---|---|---|
+| When does an observation become a primary signal? | threshold predicates, temporal windows, hysteresis, persistence rules, silence detection | formal core via `Emergence_k`; negative branch must stay explicit | Do not pull in statistics or control-theory language when a threshold, window, and cooldown rule are actually enough. |
+| When does a signal open a new case versus update an existing one? | admission predicates, equivalence/update criteria, case identity rules | formal core via `CaseBind` | Do not hide weak product rules behind vague semantic similarity or fuzzy case matching. |
+| What governed response envelope is allowed? | constraint logic, partial orders, gating predicates | formal core via `Envelope` | Do not drift into general optimization language; this is about allowed envelopes, not best-possible action search. |
+| When is evidence sufficient? | sufficiency predicates, staged completeness, checklist or lattice logic | formal core via `Envelope` | Do not simulate rigor with pseudo-probabilities when the real runtime question is governed sufficiency. |
+| Which case transitions are allowed? | state-transition logic, guard conditions | formal core via case model and `Execute` | Do not design a workflow engine on paper; model only the states and guards that change governed handling. |
+| When is approval required? | authorization predicates, approval gates, threshold rules | formal core via `Envelope` | Do not blur approval logic into evidence logic or autonomy logic until those boundaries disappear. |
+| When is bounded execution allowed? | capability constraints, prerequisite predicates, dependency guards | formal core via `Execute` | Do not replace explicit execution boundaries with vague statements about trust in the runtime or in AI. |
+| When does an outcome close a case versus continue it? | closure predicates, outcome-state mapping | formal core via `Execute` and case state | Do not leave closure as narrative judgment if closure changes auditability, escalation, or feedback. |
+| When does an outcome justify `plan_change_proposal`? | recurrence thresholds, trend logic, feedback admission rules | formal core via `Feedback` | Do not let this drift into self-improving-system rhetoric; this is proposal admission, not auto-mutation. |
+| When is heavier cognition admitted? | ambiguity, consequence, novelty, and evidence-gap gating | explicit sub-decision inside `Interpret_k`, not a separate core function | Do not make LLM invocation the default interpreter for all uncertainty. |
+| When does an observation remain observation-only? | negative emergence boundary, materiality thresholds | explicit negative branch inside `Emergence_k`, not a separate core function | Do not describe only the positive emergence path; the negative branch is one of the main product boundaries. |
+| What should be stored here versus referenced elsewhere? | ownership predicates, system-boundary mapping | belongs in `System Boundary`, not in the formal core | Do not smuggle system-of-record ambition into runtime-state design. |
+
+## Five-Question Knife
+
+Every mathematical fragment in this document should answer these questions:
+
+1. what exact operational question does this formalize
+2. which of the four acceptable goals does it serve
+3. which runtime decision becomes less ambiguous because of it
+4. why is a simpler rule not enough
+5. what part of the product pipeline becomes easier to misunderstand if this formalization is removed
+
+If the answer is weak on the first three questions, the formalization should usually be removed.
+
+## Exclusion Rules
+
+The following should usually stay out of this document unless a concrete operational question forces them in:
+
+- decorative probability language without a clear decision boundary
+- optimization framing without a concrete constrained decision
+- control-theory language beyond simple thresholds, windows, hysteresis, or feedback admission
+- Bayesian language without an explicit evidence-update use case
+- graph formalisms without a concrete case, routing, or dependency problem
+- generic scoring models that do not change any governed decision
+- mathematical generality pursued for prestige rather than for product clarity
+
+## Product Boundary Clarified By Formalization
+
+Formalization helps clarify what is inside the product boundary and what is merely adjacent.
 
 Inside the product boundary by default:
 
 - emergence logic
 - interpretation and uncertainty handling
+- case-binding logic
 - governance predicates
 - evidence sufficiency rules
-- response-mode selection
+- response-envelope selection
 - feedback thresholds for `update Plan`
 
 Outside the product boundary by default:
@@ -874,7 +907,7 @@ It binds together:
 - applicable SOP and policy
 - evidence
 - approvals
-- chosen response mode
+- response envelope
 - actions and outcomes
 - PDCA feedback
 
@@ -912,6 +945,46 @@ This case-centric view is important because it gives the product a stronger iden
 
 The runtime’s real work is not merely receiving signals.
 It is deciding when signals create or transform governed cases and then carrying those cases through bounded response and feedback.
+
+## Architectural Convergence
+
+Architectural convergence should be treated as a milestone contract, not as a vague aspiration.
+It means the fork has made governed response real across the runtime without requiring every ingress path to collapse into one code path.
+
+### Milestone A: Semantic Convergence
+
+This milestone is reached when:
+
+- every ingress path that can carry a primary signal evaluates the equivalent admission contract
+- the runtime can distinguish `observation_only` from governed handling before generic motion
+- gateway and channel paths may differ in code shape, but not in the semantics of admission, case formation, and response-envelope selection
+
+Important clarification:
+
+- parity does not mean every message becomes a governed case
+- parity means governed-lane selection is semantically consistent wherever governed handling is in scope
+
+A practical verification example is:
+
+- the same explicit incident submitted through webhook and through a governed-capable channel path should produce the same admission result, the same case-open versus observation-only decision, and the same initial response-envelope classification even if transport-specific metadata differs
+
+### Milestone B: Durable Case Convergence
+
+This milestone is reached when:
+
+- the governed case exists as a durable operational unit rather than only as in-flight loop state
+- case identity, status, evidence state, approval state, linked SOP activity, and outcomes survive transport and session boundaries
+- bounded response is attached to the case rather than only to a transient request, message thread, or tool loop
+
+### Milestone C: PDCA Convergence
+
+This milestone is reached when:
+
+- meaningful outcomes record an explicit feedback disposition
+- the runtime can produce reviewable `plan_change_proposal` artifacts rather than leaving PDCA only in prose or logs
+- recurrence, closure, escalation, and plan-review triggers are explicit enough in code to support real review and continual improvement
+
+Full architectural convergence is reached when Milestones A, B, and C are all true.
 
 ## Initial Product Form
 
@@ -956,7 +1029,7 @@ This definition implies that the product core includes:
 - signal-class-specific emergence logic
 - case formation and case updating
 - governed interpretation
-- response-mode selection
+- response-envelope selection
 - bounded execution or staged action
 - evidence and audit
 - feedback into SOP, policy, thresholds, and autonomy design
