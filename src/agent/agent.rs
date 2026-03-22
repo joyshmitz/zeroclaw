@@ -360,7 +360,7 @@ impl Agent {
         };
 
         let sop_engine = crate::sop::create_sop_engine(&config.sop, &config.workspace_dir);
-        let (mut tools, delegate_handle) = tools::all_tools_with_runtime(
+        let (mut tools, delegate_handle, _reaction_handle) = tools::all_tools_with_runtime(
             Arc::new(config.clone()),
             &security,
             runtime,
@@ -375,6 +375,7 @@ impl Agent {
             config.api_key.as_deref(),
             config,
             sop_engine,
+            None,
         );
 
         // ── Wire MCP tools (non-fatal) ─────────────────────────────
