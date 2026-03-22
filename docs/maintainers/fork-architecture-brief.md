@@ -6,7 +6,7 @@ Timestamp: 2026-03-22T10:02:37+02:00
 
 This document is the first architecture bridge between:
 
-- the fork product definition in [`PLAN_TO_FUTURE_PRODUCT.md`](/data/projects/zeroclaw/PLAN_TO_FUTURE_PRODUCT.md)
+- the fork product definition in [`PLAN_TO_FUTURE_PRODUCT.md`](../../PLAN_TO_FUTURE_PRODUCT.md)
 - the current upstream-shaped ZeroClaw codebase
 
 It exists because the product thesis is now coherent, but is not yet the controlling architectural frame of the repository.
@@ -266,7 +266,7 @@ The current implementation map makes the present code-facing reality sharper:
 
 Architectural convergence should be treated here as a milestone contract, not as a vague aspiration.
 
-This brief follows the convergence framing in [`PLAN_TO_FUTURE_PRODUCT.md`](/data/projects/zeroclaw/PLAN_TO_FUTURE_PRODUCT.md) and the code-facing grounding in [formal-core-implementation-map.md](formal-core-implementation-map.md).
+This brief follows the convergence framing in [`PLAN_TO_FUTURE_PRODUCT.md`](../../PLAN_TO_FUTURE_PRODUCT.md) and the code-facing grounding in [formal-core-implementation-map.md](formal-core-implementation-map.md).
 
 ### Milestone A: Semantic Convergence
 

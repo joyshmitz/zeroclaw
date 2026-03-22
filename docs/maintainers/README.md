@@ -9,6 +9,7 @@ Time-bound project status snapshots for planning documentation and operations wo
 - [fork-architecture-brief.md](fork-architecture-brief.md)
 - [first-governed-case-implementation-brief.md](first-governed-case-implementation-brief.md)
 - [first-governed-case-mvp-plan.md](first-governed-case-mvp-plan.md)
+- [docs-path-and-gate-policy.md](docs-path-and-gate-policy.md)
 - [formal-core-implementation-map.md](formal-core-implementation-map.md)
 - [fork-upstream-observation-rules.md](fork-upstream-observation-rules.md)
 
@@ -32,6 +33,8 @@ For the current bridge between fork product definition and codebase direction, u
 For the module-level first insertion point from governed-case planning into the current codebase, use [first-governed-case-implementation-brief.md](first-governed-case-implementation-brief.md).
 
 For the first concrete implementation-planning path from product thesis to governed handling, use [first-governed-case-mvp-plan.md](first-governed-case-mvp-plan.md).
+
+For the fork policy that separates repo-relative docs links from XDG user-space paths and defines the corresponding docs gates, use [docs-path-and-gate-policy.md](docs-path-and-gate-policy.md).
 
 For the code-facing map from the formal core in `PLAN_TO_FUTURE_PRODUCT.md` to the current implementation seams and convergence gaps, use [formal-core-implementation-map.md](formal-core-implementation-map.md).
 

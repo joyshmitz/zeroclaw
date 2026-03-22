@@ -4,7 +4,7 @@ Timestamp: 2026-03-22T09:56:06+02:00
 
 ## Status
 
-This document maps the formal core from [`PLAN_TO_FUTURE_PRODUCT.md`](/data/projects/zeroclaw/PLAN_TO_FUTURE_PRODUCT.md) onto the current codebase.
+This document maps the formal core from [`PLAN_TO_FUTURE_PRODUCT.md`](../../PLAN_TO_FUTURE_PRODUCT.md) onto the current codebase.
 
 It is not a new product-definition document.
 It is a code-facing ground-truth note for maintainers.
@@ -55,11 +55,11 @@ It is not yet enough to claim a full fork-owned governed-response runtime contra
 
 Current best fit:
 
-- [`src/agent/governed.rs`](/data/projects/zeroclaw/src/agent/governed.rs)
+- [`src/agent/governed.rs`](../../src/agent/governed.rs)
   - `draft_incident_case(...)`
   - `draft_from_envelope(...)`
   - `draft_from_marker(...)`
-- [`src/agent/loop_.rs`](/data/projects/zeroclaw/src/agent/loop_.rs)
+- [`src/agent/loop_.rs`](../../src/agent/loop_.rs)
   - `process_message(...)`
 
 What exists:
@@ -84,14 +84,14 @@ What is still missing:
 
 Important current limit:
 
-- gateway/webhook handling reaches [`process_message(...)`](/data/projects/zeroclaw/src/agent/loop_.rs)
-- channel handling in [`src/channels/mod.rs`](/data/projects/zeroclaw/src/channels/mod.rs) still bypasses this seam and goes directly into `run_tool_call_loop(...)`
+- gateway/webhook handling reaches [`process_message(...)`](../../src/agent/loop_.rs)
+- channel handling in [`src/channels/mod.rs`](../../src/channels/mod.rs) still bypasses this seam and goes directly into `run_tool_call_loop(...)`
 
 ### 2. `Interpret_k`
 
 Current best fit:
 
-- [`src/agent/governed.rs`](/data/projects/zeroclaw/src/agent/governed.rs)
+- [`src/agent/governed.rs`](../../src/agent/governed.rs)
   - `draft_from_envelope(...)`
   - `draft_from_marker(...)`
   - `build_draft(...)`
@@ -114,14 +114,14 @@ What is still missing:
 
 Clarification:
 
-- [`src/agent/classifier.rs`](/data/projects/zeroclaw/src/agent/classifier.rs) is query-hint routing for generic model selection
+- [`src/agent/classifier.rs`](../../src/agent/classifier.rs) is query-hint routing for generic model selection
 - it is not the governed interpretation seam described by the formal core
 
 ### 3. `CaseBind`
 
 Current best fit:
 
-- [`src/agent/governed.rs`](/data/projects/zeroclaw/src/agent/governed.rs)
+- [`src/agent/governed.rs`](../../src/agent/governed.rs)
   - `GovernedCaseDraft`
 
 What exists:
@@ -156,14 +156,14 @@ It is not yet a governed case in the product sense.
 
 Current best fit:
 
-- [`src/agent/governed.rs`](/data/projects/zeroclaw/src/agent/governed.rs)
+- [`src/agent/governed.rs`](../../src/agent/governed.rs)
   - `GovernedResponseMode`
   - `build_draft(...)`
-- [`src/approval/mod.rs`](/data/projects/zeroclaw/src/approval/mod.rs)
+- [`src/approval/mod.rs`](../../src/approval/mod.rs)
   - `ApprovalManager`
-- [`src/security/policy.rs`](/data/projects/zeroclaw/src/security/policy.rs)
+- [`src/security/policy.rs`](../../src/security/policy.rs)
   - `SecurityPolicy`
-- [`src/sop/engine.rs`](/data/projects/zeroclaw/src/sop/engine.rs)
+- [`src/sop/engine.rs`](../../src/sop/engine.rs)
   - `resolve_step_action(...)`
 
 What exists:
@@ -203,15 +203,15 @@ the current implementation covers only a narrower incident-handling slice of the
 
 Current best fit:
 
-- [`src/sop/types.rs`](/data/projects/zeroclaw/src/sop/types.rs)
+- [`src/sop/types.rs`](../../src/sop/types.rs)
   - `SopRunAction`
-- [`src/sop/engine.rs`](/data/projects/zeroclaw/src/sop/engine.rs)
+- [`src/sop/engine.rs`](../../src/sop/engine.rs)
   - `start_run(...)`
   - `advance_step(...)`
   - `approve_step(...)`
   - `finish_run(...)`
   - `resolve_step_action(...)`
-- [`src/agent/loop_.rs`](/data/projects/zeroclaw/src/agent/loop_.rs)
+- [`src/agent/loop_.rs`](../../src/agent/loop_.rs)
   - approval-aware tool execution
 
 What exists:
@@ -239,9 +239,9 @@ What it lacks is case-centered ownership.
 
 Current best fit:
 
-- [`src/sop/audit.rs`](/data/projects/zeroclaw/src/sop/audit.rs)
+- [`src/sop/audit.rs`](../../src/sop/audit.rs)
   - `SopAuditLogger`
-- [`src/sop/metrics.rs`](/data/projects/zeroclaw/src/sop/metrics.rs)
+- [`src/sop/metrics.rs`](../../src/sop/metrics.rs)
   - `SopMetricsCollector`
 
 What exists:
@@ -271,15 +271,15 @@ Today the first governed seam is real only on the gateway/webhook path.
 
 Gateway path:
 
-- [`src/gateway/mod.rs`](/data/projects/zeroclaw/src/gateway/mod.rs)
+- [`src/gateway/mod.rs`](../../src/gateway/mod.rs)
   - `run_gateway_chat_with_tools(...)`
-- [`src/agent/loop_.rs`](/data/projects/zeroclaw/src/agent/loop_.rs)
+- [`src/agent/loop_.rs`](../../src/agent/loop_.rs)
   - `process_message(...)`
   - governed short-circuit before generic motion
 
 Channel path:
 
-- [`src/channels/mod.rs`](/data/projects/zeroclaw/src/channels/mod.rs)
+- [`src/channels/mod.rs`](../../src/channels/mod.rs)
   - direct history assembly
   - direct `run_tool_call_loop(...)`
 

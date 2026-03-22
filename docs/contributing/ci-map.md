@@ -21,6 +21,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
     - Recommended for workflow-changing PRs
 - `.github/workflows/pr-intake-checks.yml` (`PR Intake Checks`)
     - Purpose: safe pre-CI PR checks (template completeness, added-line tabs/trailing-whitespace/conflict markers) with immediate sticky feedback comment
+
 ### Non-Blocking but Important
 
 - `.github/workflows/pub-docker-img.yml` (`Docker`)
@@ -117,7 +118,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 - Use `./scripts/ci/rust_strict_delta_gate.sh` (or `./dev/ci.sh lint-delta`) as the incremental strict merge gate for changed Rust lines.
 - Run full strict lint audits regularly via `./scripts/ci/rust_quality_gate.sh --strict` (for example through `./dev/ci.sh lint-strict`) and track cleanup in focused PRs.
 - Keep docs markdown gating incremental via `./scripts/ci/docs_quality_gate.sh` (block changed-line issues, report baseline issues separately).
-- Keep docs link gating incremental via `./scripts/ci/collect_changed_links.py` + lychee (check only links added on changed lines).
+- Keep docs link/path gating incremental via `./scripts/ci/docs_links_gate.sh` (block changed-line broken repo-relative links, absolute workspace links, and non-XDG user-path examples); keep external URL audits optional via `./scripts/ci/docs_external_links_audit.sh`.
 - Prefer explicit workflow permissions (least privilege).
 - Keep Actions source policy restricted to approved allowlist patterns (see [`docs/contributing/actions-source-policy.md`](./actions-source-policy.md)).
 - Use path filters for expensive workflows when practical.
