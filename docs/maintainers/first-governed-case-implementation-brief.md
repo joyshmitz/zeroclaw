@@ -34,13 +34,13 @@ The current repo already provides several useful footholds.
 
 Current gateway tool-enabled handling flows through:
 
-- [src/gateway/mod.rs](/data/projects/zeroclaw/src/gateway/mod.rs)
+- [src/gateway/mod.rs](../../src/gateway/mod.rs)
   - `run_gateway_chat_with_tools(...)`
-- [src/agent/loop_.rs](/data/projects/zeroclaw/src/agent/loop_.rs)
+- [src/agent/loop_.rs](../../src/agent/loop_.rs)
   - `process_message(...)`
 
 Current channel handling does **not** flow through `process_message(...)`.
-In [src/channels/mod.rs](/data/projects/zeroclaw/src/channels/mod.rs), channel messages currently do their own:
+In [src/channels/mod.rs](../../src/channels/mod.rs), channel messages currently do their own:
 
 - memory recall
 - system-prompt construction
@@ -51,7 +51,7 @@ This makes `process_message(...)` the clearest first governed seam for the curre
 
 ### 2. Generic agent behavior currently starts before governed handling exists
 
-In [src/agent/loop_.rs](/data/projects/zeroclaw/src/agent/loop_.rs), the current flow still centers on:
+In [src/agent/loop_.rs](../../src/agent/loop_.rs), the current flow still centers on:
 
 - context enrichment
 - system prompt construction
@@ -65,13 +65,13 @@ message in, LLM/tool motion out.
 
 The current repo already has:
 
-- [src/sop/mod.rs](/data/projects/zeroclaw/src/sop/mod.rs)
+- [src/sop/mod.rs](../../src/sop/mod.rs)
   - `create_sop_engine(...)`
-- [src/tools/mod.rs](/data/projects/zeroclaw/src/tools/mod.rs)
+- [src/tools/mod.rs](../../src/tools/mod.rs)
   - conditional SOP tool registration
-- [src/agent/agent.rs](/data/projects/zeroclaw/src/agent/agent.rs)
+- [src/agent/agent.rs](../../src/agent/agent.rs)
   - SOP engine passed into tool construction
-- [src/gateway/mod.rs](/data/projects/zeroclaw/src/gateway/mod.rs)
+- [src/gateway/mod.rs](../../src/gateway/mod.rs)
   - SOP engine passed into gateway tool construction
 
 So bounded procedure execution substrate is present, even though governed-case handling is not.
@@ -80,7 +80,7 @@ So bounded procedure execution substrate is present, even though governed-case h
 
 The current repo already has:
 
-- [src/approval/mod.rs](/data/projects/zeroclaw/src/approval/mod.rs)
+- [src/approval/mod.rs](../../src/approval/mod.rs)
   - `ApprovalManager`
   - `ApprovalManager::for_non_interactive(...)`
 
@@ -94,7 +94,7 @@ This means the first governed case should not assume rich live approval UX in ch
 
 The current repo already has:
 
-- [src/sop/audit.rs](/data/projects/zeroclaw/src/sop/audit.rs)
+- [src/sop/audit.rs](../../src/sop/audit.rs)
   - `SopAuditLogger`
 
 It persists SOP run and step records to the configured memory backend.
@@ -106,7 +106,7 @@ But it is a real evidence foothold the first MVP can reuse.
 
 The first governed case should enter the runtime at:
 
-- [src/agent/loop_.rs](/data/projects/zeroclaw/src/agent/loop_.rs)
+- [src/agent/loop_.rs](../../src/agent/loop_.rs)
   - `process_message(...)`
 
 For the first MVP, it should enter there:
@@ -123,14 +123,20 @@ This is the narrowest current seam that is both:
 
 The first code pass should explicitly scope the first governed seam to gateway/webhook-originated signals that already reach `process_message(...)`.
 
-The current channel runtime in [src/channels/mod.rs](/data/projects/zeroclaw/src/channels/mod.rs) is a parallel non-interactive path.
+The current channel runtime in [src/channels/mod.rs](../../src/channels/mod.rs) is a parallel non-interactive path.
 It currently performs its own memory recall, system-prompt assembly, history construction, and `run_tool_call_loop(...)` call without passing through `process_message(...)`.
 
 That means channel-path governed handling is a follow-on second pass, not silently covered by the first `process_message(...)` insertion.
 This is acceptable for the MVP because the fork first needs one honest narrow seam that makes the thesis operational without expanding immediately into one of the repo's largest ingress surfaces.
 
-If later parity is required, the fork can either extract a shared pre-motion helper or place an equivalent governed seam into the channel path.
-That follow-on choice does not need to be made before the first gateway-path code step.
+That follow-on choice has now been made (2026-03-22):
+
+- **Decision: shared pre-motion helper (Variant A)**
+- Extract governed admission logic from `process_message(...)` into a standalone function
+- Call that function from both `process_message(...)` and the generic channel-listener path in `src/channels/mod.rs`
+- Admission logic stays single source of truth — no duplication, no ongoing sync burden
+- Touch in `channels/mod.rs` should be minimal: one call before `run_tool_call_loop(...)`
+- This is the next code step toward Milestone A (Semantic Convergence)
 
 ## When To Start
 
@@ -162,7 +168,7 @@ The first code step should be delayed only if one of the following becomes true 
 
 The first code step should be a narrow insertion in:
 
-- [src/agent/loop_.rs](/data/projects/zeroclaw/src/agent/loop_.rs)
+- [src/agent/loop_.rs](../../src/agent/loop_.rs)
   - `process_message(...)`
 
 The insertion point should be:
@@ -199,18 +205,18 @@ That keeps false positives bounded and avoids silently redefining normal gateway
 
 The preferred first code footprint should be:
 
-- one narrow call-site change in [src/agent/loop_.rs](/data/projects/zeroclaw/src/agent/loop_.rs)
+- one narrow call-site change in [src/agent/loop_.rs](../../src/agent/loop_.rs)
 - one new fork-owned helper module for incident classification and first governed-case drafting
 
 The first pass should avoid touching these shared central surfaces unless the compiler forces it:
 
-- [src/agent/agent.rs](/data/projects/zeroclaw/src/agent/agent.rs)
-- [src/gateway/mod.rs](/data/projects/zeroclaw/src/gateway/mod.rs)
-- [src/channels/mod.rs](/data/projects/zeroclaw/src/channels/mod.rs)
-- [src/tools/mod.rs](/data/projects/zeroclaw/src/tools/mod.rs)
-- [src/config/schema.rs](/data/projects/zeroclaw/src/config/schema.rs)
-- [src/lib.rs](/data/projects/zeroclaw/src/lib.rs)
-- [src/main.rs](/data/projects/zeroclaw/src/main.rs)
+- [src/agent/agent.rs](../../src/agent/agent.rs)
+- [src/gateway/mod.rs](../../src/gateway/mod.rs)
+- [src/channels/mod.rs](../../src/channels/mod.rs)
+- [src/tools/mod.rs](../../src/tools/mod.rs)
+- [src/config/schema.rs](../../src/config/schema.rs)
+- [src/lib.rs](../../src/lib.rs)
+- [src/main.rs](../../src/main.rs)
 
 This matters because the first seam should reduce architectural uncertainty without inflating known merge surfaces.
 
@@ -331,11 +337,11 @@ The fork should add governed meaning before generic motion, not replace the upst
 
 To keep scope bounded, the first governed case should **not** start by redesigning:
 
-- [src/gateway/mod.rs](/data/projects/zeroclaw/src/gateway/mod.rs)
-- [src/main.rs](/data/projects/zeroclaw/src/main.rs)
-- [src/lib.rs](/data/projects/zeroclaw/src/lib.rs)
-- global config shape in [src/config/schema.rs](/data/projects/zeroclaw/src/config/schema.rs)
-- the generic tool registry model in [src/tools/mod.rs](/data/projects/zeroclaw/src/tools/mod.rs)
+- [src/gateway/mod.rs](../../src/gateway/mod.rs)
+- [src/main.rs](../../src/main.rs)
+- [src/lib.rs](../../src/lib.rs)
+- global config shape in [src/config/schema.rs](../../src/config/schema.rs)
+- the generic tool registry model in [src/tools/mod.rs](../../src/tools/mod.rs)
 
 Those surfaces matter, but they are not the best first insertion point for proving the first governed case.
 
@@ -406,7 +412,7 @@ The first governed case should not begin by changing the whole repo.
 
 It should begin by inserting one fork-owned governed-response seam into the existing non-interactive path centered on:
 
-- [src/agent/loop_.rs](/data/projects/zeroclaw/src/agent/loop_.rs)
+- [src/agent/loop_.rs](../../src/agent/loop_.rs)
   - `process_message(...)`
 
 That is the smallest current implementation address where the thesis can start becoming runtime behavior on the gateway/webhook path.
