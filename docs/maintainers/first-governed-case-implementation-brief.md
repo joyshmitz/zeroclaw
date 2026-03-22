@@ -129,14 +129,8 @@ It currently performs its own memory recall, system-prompt assembly, history con
 That means channel-path governed handling is a follow-on second pass, not silently covered by the first `process_message(...)` insertion.
 This is acceptable for the MVP because the fork first needs one honest narrow seam that makes the thesis operational without expanding immediately into one of the repo's largest ingress surfaces.
 
-That follow-on choice has now been made (2026-03-22):
-
-- **Decision: shared pre-motion helper (Variant A)**
-- Extract governed admission logic from `process_message(...)` into a standalone function
-- Call that function from both `process_message(...)` and the generic channel-listener path in `src/channels/mod.rs`
-- Admission logic stays single source of truth — no duplication, no ongoing sync burden
-- Touch in `channels/mod.rs` should be minimal: one call before `run_tool_call_loop(...)`
-- This is the next code step toward Milestone A (Semantic Convergence)
+The follow-on architecture decision has now been made (2026-03-22).
+See the Channel-Path Parity section below for the chosen approach.
 
 ## When To Start
 
@@ -239,6 +233,34 @@ This means the first pass should **not** try to cover:
 - telemetry-window anomaly emergence
 - broad inbox classification
 - final case database design
+
+## Channel-Path Parity (Follow-On, Not First Pass)
+
+This section records the architecture decision for channel-path governed handling.
+It is explicitly a second pass, after the first gateway-path seam is proven.
+
+Decision made 2026-03-22: **shared pre-motion helper (Variant A)**.
+
+What this means:
+
+- `draft_incident_case(...)` in `src/agent/governed.rs` already exists as a standalone admission function
+- `process_message(...)` already calls it — no new extraction is needed
+- the remaining work is to wire that same helper into the generic channel-listener path in `src/channels/mod.rs`
+
+Important placement constraint:
+
+- the channel path in `src/channels/mod.rs` performs memory recall, system-prompt assembly, typing indicators, and reactions before reaching `run_tool_call_loop(...)`
+- the `process_message(...)` path short-circuits all of those when governed admission succeeds
+- therefore the channel-path hook must go early in message handling, before channel-side effects, not only before `run_tool_call_loop(...)`
+- if early placement is not practical, the brief should explicitly accept that channel-path governed cases will trigger additional side effects that the gateway path avoids
+
+Why Variant A:
+
+- admission logic stays single source of truth — no duplication, no ongoing sync burden
+- minimizes touch in `channels/mod.rs` (high-churn conflict surface)
+- no parallel seam to keep in sync
+
+This section does not change the first-pass scope, which remains gateway-only.
 
 ## Minimal Seam Placement
 
