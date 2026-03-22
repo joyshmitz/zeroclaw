@@ -134,8 +134,10 @@ To run the incremental strict gate (changed Rust lines only):
 ./dev/ci.sh docker-smoke
 # Optional host-side docs gate (changed-line markdown lint)
 ./scripts/ci/docs_quality_gate.sh
-# Optional host-side docs links gate (changed-line added links)
+# Optional host-side docs links/path gate (changed-line repo-relative links + path policy)
 ./scripts/ci/docs_links_gate.sh
+# Optional host-side external docs links audit (changed-line external URLs)
+./scripts/ci/docs_external_links_audit.sh
 ```
 
 Note: local `deny` focuses on license/source policy; advisory scanning is handled by `audit`.

@@ -108,7 +108,7 @@
 - 使用 `./scripts/ci/rust_strict_delta_gate.sh`（或 `./dev/ci.sh lint-delta`）作为变更 Rust 行的增量严格合并门控。
 - 定期通过 `./scripts/ci/rust_quality_gate.sh --strict` 运行完整严格代码检查审计（例如通过 `./dev/ci.sh lint-strict`），并在聚焦的 PR 中跟踪清理工作。
 - 通过 `./scripts/ci/docs_quality_gate.sh` 保持文档 Markdown 门控的增量性（阻塞变更行问题，单独报告基线问题）。
-- 通过 `./scripts/ci/collect_changed_links.py` + lychee 保持文档链接门控的增量性（仅检查变更行上添加的链接）。
+- 通过 `./scripts/ci/docs_links_gate.sh` 保持文档链接/路径门控的增量性（阻止变更行中新增加的损坏 repo-relative 链接、绝对 workspace 路径和非 XDG 用户路径示例）；外部 URL 审计通过 `./scripts/ci/docs_external_links_audit.sh` 保持为可选。
 - 优先使用显式工作流权限（最小权限原则）。
 - 保持 Actions 源政策限制为已批准的白名单模式（参见 [`docs/contributing/actions-source-policy.md`](./actions-source-policy.zh-CN.md)）。
 - 实际可行时为耗时工作流使用路径过滤器。

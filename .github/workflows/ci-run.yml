@@ -176,6 +176,11 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
 
+      - name: Run docs links/path gate
+        run: bash scripts/ci/docs_links_gate.sh
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+
   # Composite status check — branch protection requires this single job.
   gate:
     name: CI Required Gate
