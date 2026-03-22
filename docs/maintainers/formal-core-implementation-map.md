@@ -46,8 +46,8 @@ The most accurate short description today is:
 
 `incident-scoped admission -> deterministic draft -> SOP dispatch -> audit`
 
-This is enough to prove a gateway-path governed seam.
-It is not yet enough to claim a full fork-owned governed-response runtime contract.
+This is enough to prove a governed seam on the gateway-managed path (webhook + WhatsApp, Linq, WATI, Nextcloud Talk).
+It is not yet enough to claim a full fork-owned governed-response runtime contract, because the generic channel-listener path still bypasses it.
 
 ## Formal Core Mapping
 
@@ -82,10 +82,13 @@ What is still missing:
 - emergence rules beyond explicit incidents
 - shared admission parity across all governed-capable ingress paths
 
-Important current limit:
+Important current coverage and limit:
 
-- gateway/webhook handling reaches [`process_message(...)`](../../src/agent/loop_.rs)
-- channel handling in [`src/channels/mod.rs`](../../src/channels/mod.rs) still bypasses this seam and goes directly into `run_tool_call_loop(...)`
+- the governed seam already covers the full `gateway -> process_message(...)` path, which includes:
+  - the main webhook endpoint
+  - WhatsApp, Linq, WATI, and Nextcloud Talk handlers in [`src/gateway/mod.rs`](../../src/gateway/mod.rs) via `run_gateway_chat_with_tools(...)`
+- the bypass is specifically the generic channel-listener path in [`src/channels/mod.rs`](../../src/channels/mod.rs), which goes directly into `run_tool_call_loop(...)` without passing through `process_message(...)`
+- this means the governed seam is broader than "webhook only" but narrower than "all ingress"
 
 ### 2. `Interpret_k`
 
@@ -267,26 +270,26 @@ It does not yet have PDCA closure in code.
 
 ## Current Path Reality
 
-Today the first governed seam is real only on the gateway/webhook path.
+Today the first governed seam is real on the `gateway -> process_message(...)` path.
 
-Gateway path:
+This path is broader than a single webhook endpoint.
+It already covers:
 
-- [`src/gateway/mod.rs`](../../src/gateway/mod.rs)
-  - `run_gateway_chat_with_tools(...)`
-- [`src/agent/loop_.rs`](../../src/agent/loop_.rs)
-  - `process_message(...)`
-  - governed short-circuit before generic motion
+- the main webhook endpoint in [`src/gateway/mod.rs`](../../src/gateway/mod.rs)
+- gateway-managed channel handlers: WhatsApp, Linq, WATI, and Nextcloud Talk
+- all of these reach [`src/agent/loop_.rs`](../../src/agent/loop_.rs) via `run_gateway_chat_with_tools(...)` → `process_message(...)`
 
-Channel path:
+The bypass is specifically the generic channel-listener path:
 
 - [`src/channels/mod.rs`](../../src/channels/mod.rs)
   - direct history assembly
   - direct `run_tool_call_loop(...)`
+  - used by Telegram, Discord, Slack, and other trait-based `Channel` listeners
 
 This means the fork currently has:
 
-- one honest narrow governed seam
-- not yet a shared non-interactive admission contract
+- governed admission on the gateway-managed path (webhook + WhatsApp, Linq, WATI, Nextcloud Talk)
+- no governed admission on the generic channel-listener path
 
 ## Architectural Convergence Gap Summary
 
@@ -298,14 +301,14 @@ Current status:
 
 Reason:
 
-- equivalent governed admission does not yet happen across all governed-capable ingress paths
-- the gateway path evaluates explicit incident admission before generic motion
-- the channel path does not
+- governed admission already covers the gateway-managed path: webhook, WhatsApp, Linq, WATI, Nextcloud Talk
+- the generic channel-listener path in `src/channels/mod.rs` (Telegram, Discord, Slack, and other trait-based `Channel` listeners) still bypasses `process_message(...)` and has no equivalent governed seam
 
 Concrete gap:
 
+- the remaining gap is narrower than previously described: it is specifically the generic channel-listener path, not "all channels"
 - either a shared pre-motion helper is needed
-- or an equivalent governed seam must be inserted into channel handling
+- or an equivalent governed seam must be inserted into the generic channel-listener handling
 
 ### Milestone B: Durable Case Convergence
 
