@@ -2,7 +2,7 @@
 
 This inventory classifies docs by intent so readers can quickly distinguish runtime-contract guides from design proposals.
 
-Last reviewed: **February 18, 2026**.
+Last reviewed: **March 23, 2026**.
 
 ## Classification Legend
 
@@ -38,7 +38,25 @@ Last reviewed: **February 18, 2026**.
 | `docs/security/README.md` | Current Guide | operators/contributors |
 | `docs/hardware/README.md` | Current Guide | hardware builders |
 | `docs/contributing/README.md` | Current Guide | contributors/reviewers |
-| `docs/project/README.md` | Current Guide | maintainers |
+| `docs/maintainers/README.md` | Current Guide | maintainers |
+
+## Maintainer Docs
+
+| Doc | Type | Audience |
+|---|---|---|
+| `docs/maintainers/fork-operating-model.md` | Policy / Process | maintainers |
+| `docs/maintainers/fork-release-policy.md` | Policy / Process | maintainers |
+| `docs/maintainers/upstream-intake-log.md` | Process Log | maintainers |
+| `docs/maintainers/repo-separation-criteria.md` | Policy / Decision Framework | maintainers |
+| `docs/maintainers/fork-independence-backlog.md` | Roadmap | maintainers |
+| `docs/maintainers/seam-ownership-roadmap.md` | Roadmap | maintainers |
+| `docs/maintainers/fork-upstream-observation-rules.md` | Policy / Process | maintainers |
+| `docs/maintainers/conflict-surface-map.md` | Snapshot / Process | maintainers |
+| `docs/maintainers/fork-architecture-brief.md` | Proposal / Roadmap | maintainers |
+| `docs/maintainers/formal-core-implementation-map.md` | Proposal / Roadmap | maintainers |
+| `docs/maintainers/first-governed-case-implementation-brief.md` | Proposal / Roadmap | maintainers |
+| `docs/maintainers/first-governed-case-mvp-plan.md` | Proposal / Roadmap | maintainers |
+| `docs/maintainers/project-triage-snapshot-2026-02-18.md` | Snapshot | maintainers |
 
 ## Current Guides & References
 
@@ -91,7 +109,7 @@ These are valuable context, but **not strict runtime contracts**.
 
 | Doc | Type |
 |---|---|
-| `docs/project-triage-snapshot-2026-02-18.md` | Snapshot |
+| `docs/maintainers/project-triage-snapshot-2026-02-18.md` | Snapshot |
 
 ## Maintenance Recommendations
 
@@ -102,3 +120,4 @@ These are valuable context, but **not strict runtime contracts**.
 5. Mark proposal docs clearly to avoid being mistaken for runtime contracts.
 6. Keep localized README/docs-hub links aligned when adding new core docs.
 7. Update `docs/SUMMARY.md` and collection indexes whenever new major docs are added.
+8. Update `docs/maintainers/README.md` and the maintainer-doc inventory whenever fork-control docs are added or retired.
