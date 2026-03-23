@@ -2,7 +2,7 @@
 
 This file is the canonical table of contents for the documentation system.
 
-Last refreshed: **February 18, 2026**.
+Last refreshed: **March 23, 2026**.
 
 ## Language Entry
 
@@ -133,8 +133,14 @@ Last refreshed: **February 18, 2026**.
 - [extension-examples.md](contributing/extension-examples.md)
 - [testing.md](contributing/testing.md)
 
-### 7) Project Status & Snapshot
+### 7) Maintainer Control & Snapshot
 
 - [maintainers/README.md](maintainers/README.md)
+- [fork-operating-model.md](maintainers/fork-operating-model.md)
+- [fork-release-policy.md](maintainers/fork-release-policy.md)
+- [upstream-intake-log.md](maintainers/upstream-intake-log.md)
+- [seam-ownership-roadmap.md](maintainers/seam-ownership-roadmap.md)
+- [repo-separation-criteria.md](maintainers/repo-separation-criteria.md)
+- [fork-independence-backlog.md](maintainers/fork-independence-backlog.md)
 - [project-triage-snapshot-2026-02-18.md](maintainers/project-triage-snapshot-2026-02-18.md)
 - [docs-inventory.md](maintainers/docs-inventory.md)

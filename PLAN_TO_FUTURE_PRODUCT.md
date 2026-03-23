@@ -154,11 +154,9 @@ The fork should be evaluated not only by whether it reacts to a signal, but whet
 
 Relevant standards should be used as guidance rails where they sharpen vocabulary, controls, evidence, risk treatment, review, and continual improvement.
 
-They should **not** be allowed to redefine product identity.
-The product is still defined by governed interpretation and response to primary signals, not by compliance theater or certification-first framing.
-This is a critical correction:
-standards should lead and discipline relevant sections of the document, but they should not define product identity.
-Otherwise the fork drifts into certification-first thinking instead of product-first clarity.
+They should **not** define product identity.
+Use them to discipline relevant sections of the document, not to turn the plan into certification-first framing.
+The product is still defined by governed interpretation and response to primary signals.
 
 The strongest management-system reference remains ISO 9001 because it aligns well with:
 
@@ -213,25 +211,7 @@ Working rule:
 
 SOP should be treated as the most concrete current embodiment of `Plan`.
 
-In this fork, SOP is important because it can serve as:
-
-- the procedural expression of intended behavior
-- the bridge between signal interpretation and governed execution
-- the thing that makes agentic behavior bounded instead of improvisational
-- the artifact that can be reviewed, corrected, versioned, and improved over time
-
-SOP is therefore not “just another feature”.
-It is currently the strongest available mechanism for turning:
-
-`signal -> meaning`
-
-into:
-
-`governed response`
-
-and then feeding the result back into:
-
-`updated plan`
+In this fork, SOP is the strongest current mechanism for expressing intended behavior, turning signal interpretation into governed execution, and keeping procedure reviewable, versioned, and improvable over time.
 
 However, SOP should not be mistaken for the whole system.
 The broader fork still includes other essential layers:
@@ -369,11 +349,10 @@ This reduces noise and preserves the idea that the fork is not primarily a telem
 
 For many instrument, gateway, and controller-originated signals, emergence should be evaluated over time rather than on a single raw observation.
 
-This makes your intuition directionally correct:
-for some signal types, `Plan` should define a time window in which observations are analyzed for change, persistence, drift, or trend before a primary signal is emitted.
+For those signal types, `Plan` should define a time window in which observations are analyzed for change, persistence, drift, or trend before a primary signal is emitted.
 
-However, this should not become a universal rule for all signals.
-The better framing is:
+This should not become a universal rule for all signals.
+A better framing is:
 
 - each signal type may have its own temporal semantics
 - some signals are instantaneous
@@ -416,8 +395,7 @@ It is in deciding when a pattern has become operationally meaningful enough to d
 
 In many deployments, especially high-volume edge environments, these temporal emergence rules may run close to the source, including at gateway level.
 That is acceptable and often desirable.
-But it still should not redefine product identity:
-the gateway may host emergence logic, while the fork remains centered on meaning, governance, SOP, and response.
+It still does not redefine product identity; the gateway may host emergence logic while the fork remains centered on meaning, governance, SOP, and response.
 
 ## Transport-Neutral Cognitive Admission
 
@@ -453,38 +431,12 @@ The default posture should therefore be:
 - richer contextual interpretation second
 - cognitive escalation only when lower-cost rules leave meaningful uncertainty
 
-This means the cheapest useful computation for a given signal type should usually be preferred as the first gate.
-That includes threshold rules, temporal window rules, drift detection, state transition rules, silence detection, and other bounded evaluators defined by `Plan`.
+The cheapest useful computation for a given signal type should usually be the first gate. That includes threshold rules, temporal windows, drift detection, state transitions, silence detection, and other bounded evaluators defined by `Plan`.
 
-An email often justifies cognition more often than device telemetry because it is frequently unstructured and compressed into human language.
-But email should still not be assumed to require cognition by default:
+Email often justifies cognition more than device telemetry because it is frequently unstructured, but spam, auto-replies, routine structured requests, and obvious known intents do not.
+Structured device and gateway signals usually justify it less often, but multi-signal anomalies, repeated near-threshold drift, ambiguous fault clusters, and incidents requiring explanation may still justify escalation.
 
-- spam
-- auto-replies
-- routine structured requests
-- obvious known intents
-
-may all be handled without heavy interpretation.
-
-Likewise, device and gateway signals usually justify cognition less often because they are structured and high-volume.
-But they should not be excluded categorically:
-
-- multi-signal anomalies
-- repeated near-threshold drift
-- ambiguous fault clusters
-- incidents requiring explanation or recommendation
-
-may justify cognitive escalation.
-
-So the correct principle is not:
-
-`email -> cognition`
-
-or:
-
-`gateway -> no cognition`
-
-but rather:
+The governing rule is:
 
 `signal significance + ambiguity + consequence -> cognition if justified`
 
@@ -513,9 +465,21 @@ Within that boundary, the fork may still own important runtime state such as:
 - audit trails
 - plan-change proposals
 
-This means the fork may record the governed handling of a situation without becoming the system of record for every surrounding domain object.
-Some things should be stored here because they define governed response.
-Other things should be referenced from external systems because they define broader domain truth.
+The fork may record the governed handling of a situation without becoming the system of record for every surrounding domain object.
+These are linked context by default, not intake surfaces the product must absorb.
+Store what defines governed response here; reference what defines broader domain truth elsewhere.
+
+Common linked context may include:
+
+- asset or configuration records
+- service or customer records
+- document and procedure records
+- risk, control, and obligation registers
+- training and competency records
+- maintenance history and inspection records
+
+The fork should usually reference these systems of record rather than absorb them.
+It should persist them only when they affect case state, evidence, approvals, response envelopes, or feedback.
 
 ## Role Relative To Signal Ecosystems
 
@@ -577,19 +541,8 @@ In compact form:
 
 `signal -> interpretation -> policy/procedure selection -> governed execution -> evidence -> PDCA feedback`
 
-This should not be read as a strict implementation sequence yet.
-It is a product-thinking sequence that keeps the system coherent.
-
-Within this flow:
-
-- signal providers bring the event into the system
-- interpretation gives the event meaning
-- SOP and policy constrain what may happen next
-- autonomy determines who or what may act
-- evidence and audit make the response explainable
-- PDCA closes the loop so the system can improve over time
-
-This flow is broader than SOP alone, but SOP is currently the most concrete anchor inside it.
+This is not yet a strict implementation sequence.
+It is a product-thinking sequence. The flow is broader than SOP alone, but SOP remains the most concrete anchor inside it.
 
 ## Interpretation Layer
 
@@ -839,6 +792,34 @@ It is a minimal working lens that covers current anchor scenarios without overfi
 
 An inbound command should usually be treated first as a signal requiring interpretation and governance, not as self-justifying execution.
 
+## Working Governed Case-Type Lens
+
+Signal type, case type, and response mode are different axes.
+
+- signal type describes what arrived
+- case type describes the governed operational unit that may be opened or updated
+- response mode describes what is currently allowed for that case
+
+A useful current working set of case types is:
+
+- `incident`
+  - acute operational, quality, safety, security, or service disruption
+- `problem`
+  - a recurring or structurally related pattern across incidents that requires root-cause treatment
+- `change`
+  - a governed change to infrastructure, configuration, process, policy, or controlled assets
+- `maintenance`
+  - inspection, preventive work, or condition-based intervention tied to asset state or degradation
+- `request`
+  - inbound demand for service, decision preparation, or workflow initiation
+- `nonconformity`
+  - deviation from an explicit requirement, specification, control, or procedure
+- `audit_or_review`
+  - scheduled or triggered assurance, internal audit, management review, or control verification
+
+This is not a final taxonomy.
+It is a bounded working lens for architecture and review.
+
 ## Governed Response Modes
 
 Not every meaningful signal should trigger the same kind of response.
@@ -862,7 +843,11 @@ It may be explicit non-action, observation, or evidence collection with a clear 
 
 The PDCA loop in this fork should not end at response execution.
 
-`update Plan` should be understood as governed change to the artifacts that shape future response, such as:
+`update Plan` is not the same thing as executing a governed operational change.
+
+A governed response may include a change to infrastructure, configuration, documentation, asset state, staffing, schedule, or workflow under the current response envelope.
+`update Plan` is narrower.
+It means a governed change to the artifacts that shape future response, such as:
 
 - SOP content or branching
 - policy rules
@@ -870,6 +855,15 @@ The PDCA loop in this fork should not end at response execution.
 - evidence requirements
 - routing or ownership rules
 - autonomy boundaries
+
+This distinction matters because the runtime should support both:
+
+- `execute_change`
+- `propose_plan_change`
+
+The first changes the world under current governance.
+The second proposes a reviewable change to governance itself.
+A mature product should handle both without collapsing them into one concept.
 
 Plan update becomes justified when repeated signals or outcomes expose:
 
@@ -892,6 +886,8 @@ It does not imply unconstrained self-modifying behavior.
 | Quality or operational incident | failed check, quality alert, stop condition | corrective workflow required | run SOP, require evidence, approvals, corrective steps, phase/gate control | `Check -> Act -> Plan` | `internal` |
 | Edge agent in product | local device or gateway event | local constrained response needed | execute allowed local SOP step, escalate when needed, record decision trail | `Do/Check -> Act` | `product` |
 | Mixed-signal response hub | technical, human, business, system events | need one governed response model | normalize, route, execute SOP, audit, escalate, revise process | full loop | `product seed` |
+| Condition-based maintenance | degradation trend, inspection reading, runtime-hour threshold | preventive intervention required | open/update maintenance case, assign owner, schedule bounded action, collect evidence | `Check -> Do -> Act` | `internal -> dual-use/product seed` |
+| Scheduled audit or management review | cron, calendar trigger, recurring control check | assurance activity required | open review case, request evidence, assign owner, record findings, decide plan change | `Plan -> Check -> Act` | `internal` |
 
 ## Governed Case Semantics
 
@@ -910,6 +906,26 @@ It binds together:
 - response envelope
 - actions and outcomes
 - PDCA feedback
+
+Human workflow belongs inside this case model, not only at approval gates.
+A governed case should also be able to carry:
+
+- owner
+- assignee
+- required role or competency
+- escalation target
+- handover state
+- training or staffing action when the case reveals a capability gap
+
+A governed case may be single-domain or multi-domain.
+
+A multi-domain case may bind:
+
+- more than one operational domain such as IT, OT, quality, safety, compliance, or commercial operations
+- more than one governed object such as an asset, service, location, supplier, document, or account
+- more than one obligation set such as policy, control, contractual, or regulatory requirements
+
+The product should not require separate siloed cases when one operational situation is being governed as one bounded unit.
 
 This creates an important distinction:
 
@@ -1049,6 +1065,8 @@ The most useful anchor scenarios right now are:
 1. quality or operational incident
 2. technical anomaly
 3. business inbound request
+4. condition-based maintenance
+5. scheduled audit or management review
 
 Why these:
 
@@ -1058,7 +1076,7 @@ Why these:
 - they exercise SOP in realistic ways
 
 These anchor scenarios should now be treated as validation scenarios for the chosen product definition.
-They are more important than trying to prematurely optimize for a single final architecture.
+They matter more than premature optimization for a single final architecture.
 
 ## Current Non-Goals
 
@@ -1140,16 +1158,13 @@ Revisit this document when one of these becomes true:
 
 ## Working Conclusion
 
-The planning cycle has now reached a usable final product definition.
+The fork now has enough product clarity to move from idea formation into architecture and implementation planning.
 
-The fork should be treated as:
+Treat it as the implementation path for an internal-first governed response runtime:
 
-- the implementation path for an internal-first governed response runtime
 - centered on signal-class-specific emergence, governed cases, bounded response, and auditable PDCA feedback
 - broader than a single transport, inbox workflow, or edge integration
 - narrower than a generic orchestration platform or universal event stack
-
-This is enough product clarity to move from idea formation into architecture and implementation planning without pretending the surrounding ecosystem must be replaced.
 
 ## Sources
 
