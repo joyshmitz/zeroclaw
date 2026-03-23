@@ -621,12 +621,16 @@ mod tests {
     use super::*;
     use crate::sop::types::{SopEvent, SopStepResult, SopTriggerSource};
 
+    fn recent_timestamp(offset: chrono::Duration) -> String {
+        (Utc::now() - offset).to_rfc3339()
+    }
+
     fn make_event() -> SopEvent {
         SopEvent {
             source: SopTriggerSource::Manual,
             topic: None,
             payload: None,
-            timestamp: "2026-02-19T12:00:00Z".into(),
+            timestamp: recent_timestamp(chrono::Duration::minutes(5)),
         }
     }
 
@@ -644,8 +648,8 @@ mod tests {
             status,
             current_step: total_steps,
             total_steps,
-            started_at: "2026-02-19T12:00:00Z".into(),
-            completed_at: Some("2026-02-19T12:05:00Z".into()),
+            started_at: recent_timestamp(chrono::Duration::minutes(5)),
+            completed_at: Some(recent_timestamp(chrono::Duration::minutes(0))),
             step_results,
             waiting_since: None,
         }
@@ -656,8 +660,8 @@ mod tests {
             step_number: number,
             status,
             output: format!("Step {number}"),
-            started_at: "2026-02-19T12:00:00Z".into(),
-            completed_at: Some("2026-02-19T12:01:00Z".into()),
+            started_at: recent_timestamp(chrono::Duration::minutes(1)),
+            completed_at: Some(recent_timestamp(chrono::Duration::seconds(0))),
         }
     }
 
@@ -1241,7 +1245,7 @@ mod tests {
             status: SopRunStatus::Running,
             current_step: 1,
             total_steps: 3,
-            started_at: "2026-02-19T12:00:00Z".into(),
+            started_at: recent_timestamp(chrono::Duration::minutes(5)),
             completed_at: None,
             step_results: vec![],
             waiting_since: None,
@@ -1338,7 +1342,7 @@ mod tests {
             status: SopRunStatus::Running,
             current_step: 1,
             total_steps: 3,
-            started_at: "2026-02-19T12:00:00Z".into(),
+            started_at: recent_timestamp(chrono::Duration::minutes(5)),
             completed_at: None,
             step_results: vec![],
             waiting_since: None,
