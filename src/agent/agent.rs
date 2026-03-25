@@ -876,12 +876,7 @@ impl Agent {
                 .await;
         }
 
-        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S %Z");
-        let enriched = if context.is_empty() {
-            format!("[{now}] {user_message}")
-        } else {
-            format!("{context}[{now}] {user_message}")
-        };
+        let enriched = enrich_user_message(&context, user_message);
 
         self.history
             .push(ConversationMessage::Chat(ChatMessage::user(enriched)));
