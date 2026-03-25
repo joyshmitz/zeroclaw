@@ -116,7 +116,7 @@ pub fn summarize_dispatch_results(results: &[DispatchResult]) -> GovernedDispatc
         .iter()
         .find(|result| matches!(result, DispatchResult::Started { .. }))
     {
-        return match action {
+        return match action.as_ref() {
             SopRunAction::WaitApproval { step, .. } => GovernedDispatchSummary {
                 response_mode: GovernedResponseMode::StageForApproval,
                 detail: format!(
@@ -130,6 +130,24 @@ pub fn summarize_dispatch_results(results: &[DispatchResult]) -> GovernedDispatc
                 response_mode: GovernedResponseMode::ApplySop,
                 detail: format!(
                     "matched SOP '{sop_name}' (run {run_id}); step {} '{}' is ready for bounded execution",
+                    step.number, step.title
+                ),
+                sop_name: Some(sop_name.clone()),
+                run_id: Some(run_id.clone()),
+            },
+            SopRunAction::DeterministicStep { step, .. } => GovernedDispatchSummary {
+                response_mode: GovernedResponseMode::ApplySop,
+                detail: format!(
+                    "matched SOP '{sop_name}' (run {run_id}); deterministic step {} '{}' is ready for bounded execution",
+                    step.number, step.title
+                ),
+                sop_name: Some(sop_name.clone()),
+                run_id: Some(run_id.clone()),
+            },
+            SopRunAction::CheckpointWait { step, .. } => GovernedDispatchSummary {
+                response_mode: GovernedResponseMode::StageForApproval,
+                detail: format!(
+                    "matched SOP '{sop_name}' (run {run_id}); checkpoint step {} '{}' is waiting for approval",
                     step.number, step.title
                 ),
                 sop_name: Some(sop_name.clone()),

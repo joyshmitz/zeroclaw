@@ -1,5 +1,6 @@
 # AGENTS.md — ZeroClaw
 
+Cross-tool agent instructions for any AI coding assistant working on this repository.
 ## Commands
 
 ```bash
@@ -106,7 +107,6 @@ Conflict-aware working rule:
 - expect repeated conflicts in strategic docs, prompt/bootstrap files, and cross-cutting orchestration surfaces
 - prefer explicit merge commits for upstream intake over hiding conflict resolution in unrelated feature history
 - revisit branch boundaries when fork drift starts making conflict resolution materially expensive
-
 ## Anti-Patterns
 
 - Do not add heavy dependencies for minor convenience.
@@ -156,7 +156,6 @@ Do not let planning or documentation work slide into:
 - LLM-first framing
 
 The product is defined by governed interpretation and response to heterogeneous primary signals, not by any one standard, provider, transport, or deployment topology.
-
 ## Linked References
 
 - `@docs/contributing/change-playbooks.md` — adding providers, channels, tools, peripherals; security/gateway changes; architecture boundaries

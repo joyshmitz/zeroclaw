@@ -36,7 +36,7 @@ use async_trait::async_trait;
 use std::path::PathBuf;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
-use tokio::time::{timeout, Duration};
+use tokio::time::{sleep, timeout, Duration};
 
 /// Environment variable for overriding the path to the `claude` binary.
 pub const CLAUDE_CODE_PATH_ENV: &str = "CLAUDE_CODE_PATH";
@@ -48,6 +48,8 @@ const DEFAULT_CLAUDE_CODE_BINARY: &str = "claude";
 const DEFAULT_MODEL_MARKER: &str = "default";
 /// Claude Code requests are bounded to avoid hung subprocesses.
 const CLAUDE_CODE_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+const CLAUDE_CODE_SPAWN_RETRY_DELAY: Duration = Duration::from_millis(25);
+const CLAUDE_CODE_SPAWN_RETRIES: usize = 3;
 /// Avoid leaking oversized stderr payloads.
 const MAX_CLAUDE_CODE_STDERR_CHARS: usize = 512;
 /// The CLI does not support sampling controls; allow only baseline defaults.
@@ -147,7 +149,29 @@ impl ClaudeCodeProvider {
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::piped());
 
-        let mut child = cmd.spawn().map_err(|err| {
+        let mut spawned_child = None;
+        let mut last_err = None;
+        for attempt in 0..=CLAUDE_CODE_SPAWN_RETRIES {
+            match cmd.spawn() {
+                Ok(child) => {
+                    spawned_child = Some(child);
+                    last_err = None;
+                    break;
+                }
+                Err(err)
+                    if err.raw_os_error() == Some(26) && attempt < CLAUDE_CODE_SPAWN_RETRIES =>
+                {
+                    last_err = Some(err);
+                    sleep(CLAUDE_CODE_SPAWN_RETRY_DELAY).await;
+                }
+                Err(err) => {
+                    last_err = Some(err);
+                    break;
+                }
+            }
+        }
+        let mut child = spawned_child.ok_or_else(|| {
+            let err = last_err.expect("spawn failure must capture an error");
             anyhow::anyhow!(
                 "Failed to spawn Claude Code binary at {}: {err}. \
                  Ensure `claude` is installed and in PATH, or set CLAUDE_CODE_PATH.",
@@ -398,8 +422,6 @@ mod tests {
     /// Helper: create a provider that uses a shell script echoing stdin back.
     /// The script ignores CLI flags (`--print`, `--model`, `-`) and just cats stdin.
     fn echo_provider() -> ClaudeCodeProvider {
-        use std::io::Write;
-
         static SCRIPT_ID: AtomicUsize = AtomicUsize::new(0);
         let dir = std::env::temp_dir().join("zeroclaw_test_claude_code");
         std::fs::create_dir_all(&dir).unwrap();
@@ -410,10 +432,7 @@ mod tests {
             std::process::id(),
             script_id
         ));
-        let mut f = std::fs::File::create(&path).unwrap();
-        writeln!(f, "#!/bin/sh\ncat /dev/stdin").unwrap();
-        f.sync_all().unwrap();
-        drop(f);
+        std::fs::write(&path, "#!/bin/sh\ncat /dev/stdin\n").unwrap();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

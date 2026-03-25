@@ -24,7 +24,7 @@ pub enum DispatchResult {
     Started {
         run_id: String,
         sop_name: String,
-        action: SopRunAction,
+        action: Box<SopRunAction>,
     },
     /// A matching SOP was found but could not start (cooldown / concurrency).
     Skipped { sop_name: String, reason: String },
@@ -39,6 +39,8 @@ fn extract_run_id_from_action(action: &SopRunAction) -> &str {
     match action {
         SopRunAction::ExecuteStep { run_id, .. }
         | SopRunAction::WaitApproval { run_id, .. }
+        | SopRunAction::DeterministicStep { run_id, .. }
+        | SopRunAction::CheckpointWait { run_id, .. }
         | SopRunAction::Completed { run_id, .. }
         | SopRunAction::Failed { run_id, .. } => run_id,
     }
@@ -49,6 +51,8 @@ fn action_label(action: &SopRunAction) -> &'static str {
     match action {
         SopRunAction::ExecuteStep { .. } => "ExecuteStep",
         SopRunAction::WaitApproval { .. } => "WaitApproval",
+        SopRunAction::DeterministicStep { .. } => "DeterministicStep",
+        SopRunAction::CheckpointWait { .. } => "CheckpointWait",
         SopRunAction::Completed { .. } => "Completed",
         SopRunAction::Failed { .. } => "Failed",
     }
@@ -123,7 +127,7 @@ pub async fn dispatch_sop_event(
                     results.push(DispatchResult::Started {
                         run_id,
                         sop_name: sop_name.clone(),
-                        action,
+                        action: Box::new(action),
                     });
                 }
                 Err(e) => {
@@ -164,7 +168,7 @@ pub fn process_headless_results(results: &[DispatchResult]) {
                 run_id,
                 sop_name,
                 action,
-            } => match action {
+            } => match action.as_ref() {
                 SopRunAction::ExecuteStep { step, .. } => {
                     warn!(
                         "SOP headless dispatch: run {run_id} ('{sop_name}') ready for step {} \
@@ -177,6 +181,24 @@ pub fn process_headless_results(results: &[DispatchResult]) {
                         "SOP headless dispatch: run {run_id} ('{sop_name}') waiting for approval \
                          on step {} '{}'. Timeout polling will handle progression",
                         step.number, step.title,
+                    );
+                }
+                SopRunAction::DeterministicStep { step, .. } => {
+                    info!(
+                        "SOP headless dispatch: run {run_id} ('{sop_name}') deterministic step {} \
+                         '{}'",
+                        step.number, step.title,
+                    );
+                }
+                SopRunAction::CheckpointWait {
+                    step, state_file, ..
+                } => {
+                    info!(
+                        "SOP headless dispatch: run {run_id} ('{sop_name}') checkpoint at step {} \
+                         '{}', state persisted to {}",
+                        step.number,
+                        step.title,
+                        state_file.display(),
                     );
                 }
                 SopRunAction::Completed { .. } => {
@@ -348,10 +370,13 @@ mod tests {
                 body: "Do step one".into(),
                 suggested_tools: vec![],
                 requires_confirmation: false,
+                kind: crate::sop::SopStepKind::default(),
+                schema: None,
             }],
             cooldown_secs: 0,
             max_concurrent: 2,
             location: None,
+            deterministic: false,
         }
     }
 
@@ -395,7 +420,7 @@ mod tests {
         let results = dispatch_sop_event(&engine, &audit, event).await;
         assert_eq!(results.len(), 1);
         assert!(
-            matches!(&results[0], DispatchResult::Started { sop_name, action, .. } if sop_name == "mqtt-sop" && matches!(action, SopRunAction::ExecuteStep { .. }))
+            matches!(&results[0], DispatchResult::Started { sop_name, action, .. } if sop_name == "mqtt-sop" && matches!(action.as_ref(), SopRunAction::ExecuteStep { .. }))
         );
     }
 
@@ -533,7 +558,7 @@ mod tests {
                 assert_eq!(sop_name, "supervised-sop");
                 assert!(!run_id.is_empty());
                 assert!(
-                    matches!(action, SopRunAction::WaitApproval { .. }),
+                    matches!(action.as_ref(), SopRunAction::WaitApproval { .. }),
                     "Supervised SOP must return WaitApproval, got {:?}",
                     action
                 );
@@ -560,7 +585,7 @@ mod tests {
         match &results[0] {
             DispatchResult::Started { action, .. } => {
                 assert!(
-                    matches!(action, SopRunAction::ExecuteStep { .. }),
+                    matches!(action.as_ref(), SopRunAction::ExecuteStep { .. }),
                     "Auto SOP must return ExecuteStep, got {:?}",
                     action
                 );
