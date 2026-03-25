@@ -36,7 +36,7 @@ use async_trait::async_trait;
 use std::path::PathBuf;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
-use tokio::time::{sleep, timeout, Duration};
+use tokio::time::{timeout, Duration};
 
 /// Environment variable for overriding the path to the `claude` binary.
 pub const CLAUDE_CODE_PATH_ENV: &str = "CLAUDE_CODE_PATH";
@@ -48,8 +48,6 @@ const DEFAULT_CLAUDE_CODE_BINARY: &str = "claude";
 const DEFAULT_MODEL_MARKER: &str = "default";
 /// Claude Code requests are bounded to avoid hung subprocesses.
 const CLAUDE_CODE_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
-const CLAUDE_CODE_SPAWN_RETRY_DELAY: Duration = Duration::from_millis(25);
-const CLAUDE_CODE_SPAWN_RETRIES: usize = 3;
 /// Avoid leaking oversized stderr payloads.
 const MAX_CLAUDE_CODE_STDERR_CHARS: usize = 512;
 /// The CLI does not support sampling controls; allow only baseline defaults.
@@ -135,49 +133,55 @@ impl ClaudeCodeProvider {
     /// Invoke the claude binary with the given prompt and optional model.
     /// Returns the trimmed stdout output as the assistant response.
     async fn invoke_cli(&self, message: &str, model: &str) -> anyhow::Result<String> {
-        let mut cmd = Command::new(&self.binary_path);
-        cmd.arg("--print");
+        let mut child = {
+            let mut last_busy_error = None;
+            let mut spawned_child = None;
 
-        if Self::should_forward_model(model) {
-            cmd.arg("--model").arg(model);
-        }
+            for attempt in 0..3 {
+                let mut cmd = Command::new(&self.binary_path);
+                cmd.arg("--print");
 
-        // Read prompt from stdin to avoid exposing sensitive content in process args.
-        cmd.arg("-");
-        cmd.kill_on_drop(true);
-        cmd.stdin(std::process::Stdio::piped());
-        cmd.stdout(std::process::Stdio::piped());
-        cmd.stderr(std::process::Stdio::piped());
-
-        let mut spawned_child = None;
-        let mut last_err = None;
-        for attempt in 0..=CLAUDE_CODE_SPAWN_RETRIES {
-            match cmd.spawn() {
-                Ok(child) => {
-                    spawned_child = Some(child);
-                    last_err = None;
-                    break;
+                if Self::should_forward_model(model) {
+                    cmd.arg("--model").arg(model);
                 }
-                Err(err)
-                    if err.raw_os_error() == Some(26) && attempt < CLAUDE_CODE_SPAWN_RETRIES =>
-                {
-                    last_err = Some(err);
-                    sleep(CLAUDE_CODE_SPAWN_RETRY_DELAY).await;
-                }
-                Err(err) => {
-                    last_err = Some(err);
-                    break;
+
+                // Read prompt from stdin to avoid exposing sensitive content in process args.
+                cmd.arg("-");
+                cmd.kill_on_drop(true);
+                cmd.stdin(std::process::Stdio::piped());
+                cmd.stdout(std::process::Stdio::piped());
+                cmd.stderr(std::process::Stdio::piped());
+
+                match cmd.spawn() {
+                    Ok(child) => {
+                        spawned_child = Some(child);
+                        break;
+                    }
+                    Err(err) if err.raw_os_error() == Some(26) && attempt < 2 => {
+                        last_busy_error = Some(err);
+                        tokio::time::sleep(Duration::from_millis(25)).await;
+                    }
+                    Err(err) => {
+                        return Err(anyhow::anyhow!(
+                            "Failed to spawn Claude Code binary at {}: {err}. \
+                             Ensure `claude` is installed and in PATH, or set CLAUDE_CODE_PATH.",
+                            self.binary_path.display()
+                        ));
+                    }
                 }
             }
-        }
-        let mut child = spawned_child.ok_or_else(|| {
-            let err = last_err.expect("spawn failure must capture an error");
-            anyhow::anyhow!(
-                "Failed to spawn Claude Code binary at {}: {err}. \
-                 Ensure `claude` is installed and in PATH, or set CLAUDE_CODE_PATH.",
-                self.binary_path.display()
-            )
-        })?;
+
+            spawned_child.ok_or_else(|| {
+                let err = last_busy_error
+                    .map(|err| err.to_string())
+                    .unwrap_or_else(|| "unknown spawn failure".to_string());
+                anyhow::anyhow!(
+                    "Failed to spawn Claude Code binary at {}: {err}. \
+                     Ensure `claude` is installed and in PATH, or set CLAUDE_CODE_PATH.",
+                    self.binary_path.display()
+                )
+            })?
+        };
 
         if let Some(mut stdin) = child.stdin.take() {
             stdin.write_all(message.as_bytes()).await.map_err(|err| {

@@ -273,8 +273,8 @@ async fn e2e_memory_enrichment_injects_context() {
     assert_eq!(requests.len(), 1);
     let user_msg = requests[0].iter().find(|m| m.role == "user").unwrap();
     assert!(
-        user_msg.content.contains("[Memory context]"),
-        "User message should contain memory context, got: {}",
+        user_msg.content.starts_with("[CURRENT DATE & TIME: "),
+        "User message should start with date context, got: {}",
         user_msg.content,
     );
     assert!(
@@ -292,6 +292,7 @@ async fn e2e_memory_enrichment_injects_context() {
     match &history[1] {
         ConversationMessage::Chat(c) => {
             assert_eq!(c.role, "user");
+            assert!(c.content.starts_with("[CURRENT DATE & TIME: "));
             assert!(c.content.contains("[Memory context]"));
             assert!(c.content.ends_with("hello"));
         }

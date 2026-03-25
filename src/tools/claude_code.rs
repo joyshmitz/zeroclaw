@@ -33,6 +33,46 @@ impl ClaudeCodeTool {
     }
 }
 
+fn resolve_working_directory(
+    workspace: &std::path::Path,
+    requested: Option<&str>,
+) -> std::result::Result<std::path::PathBuf, String> {
+    let canonical_ws = workspace.canonicalize().map_err(|_| {
+        format!(
+            "workspace directory '{}' does not exist or is not accessible",
+            workspace.display()
+        )
+    })?;
+
+    let Some(wd) = requested else {
+        return Ok(canonical_ws);
+    };
+
+    let requested_path = std::path::PathBuf::from(wd);
+    let candidate = if requested_path.is_absolute() {
+        requested_path
+    } else {
+        canonical_ws.join(&requested_path)
+    };
+
+    let canonical_wd = candidate.canonicalize().map_err(|_| {
+        format!(
+            "working_directory '{}' does not exist or is not accessible",
+            wd
+        )
+    })?;
+
+    if !canonical_wd.starts_with(&canonical_ws) {
+        return Err(format!(
+            "working_directory '{}' is outside the workspace '{}'",
+            wd,
+            workspace.display()
+        ));
+    }
+
+    Ok(canonical_wd)
+}
+
 #[async_trait]
 impl Tool for ClaudeCodeTool {
     fn name(&self) -> &str {
@@ -130,49 +170,18 @@ impl Tool for ClaudeCodeTool {
         // non-existent paths instead of falling back to the raw value, which
         // could bypass the workspace containment check via symlinks or
         // specially-crafted path components).
-        let work_dir = if let Some(wd) = args.get("working_directory").and_then(|v| v.as_str()) {
-            let wd_path = std::path::PathBuf::from(wd);
-            let workspace = &self.security.workspace_dir;
-            let canonical_wd = match wd_path.canonicalize() {
-                Ok(p) => p,
-                Err(_) => {
-                    return Ok(ToolResult {
-                        success: false,
-                        output: String::new(),
-                        error: Some(format!(
-                            "working_directory '{}' does not exist or is not accessible",
-                            wd
-                        )),
-                    });
-                }
-            };
-            let canonical_ws = match workspace.canonicalize() {
-                Ok(p) => p,
-                Err(_) => {
-                    return Ok(ToolResult {
-                        success: false,
-                        output: String::new(),
-                        error: Some(format!(
-                            "workspace directory '{}' does not exist or is not accessible",
-                            workspace.display()
-                        )),
-                    });
-                }
-            };
-            if !canonical_wd.starts_with(&canonical_ws) {
+        let work_dir = match resolve_working_directory(
+            &self.security.workspace_dir,
+            args.get("working_directory").and_then(|v| v.as_str()),
+        ) {
+            Ok(path) => path,
+            Err(error) => {
                 return Ok(ToolResult {
                     success: false,
                     output: String::new(),
-                    error: Some(format!(
-                        "working_directory '{}' is outside the workspace '{}'",
-                        wd,
-                        workspace.display()
-                    )),
+                    error: Some(error),
                 });
             }
-            canonical_wd
-        } else {
-            self.security.workspace_dir.clone()
         };
 
         // Record action budget
@@ -336,6 +345,7 @@ mod tests {
     use super::*;
     use crate::config::ClaudeCodeConfig;
     use crate::security::{AutonomyLevel, SecurityPolicy};
+    use std::fs;
 
     fn test_config() -> ClaudeCodeConfig {
         ClaudeCodeConfig::default()
@@ -447,5 +457,33 @@ mod tests {
         assert_eq!(config.max_output_bytes, 2_097_152);
         assert!(config.system_prompt.is_none());
         assert_eq!(config.allowed_tools, vec!["Read", "Edit", "Bash", "Write"]);
+    }
+
+    #[test]
+    fn resolve_working_directory_accepts_relative_workspace_subdirectory() {
+        let workspace = tempfile::tempdir().expect("workspace tempdir");
+        let src_dir = workspace.path().join("src");
+        fs::create_dir_all(&src_dir).expect("create subdirectory");
+
+        let resolved =
+            resolve_working_directory(workspace.path(), Some("src")).expect("resolve subdir");
+
+        assert_eq!(resolved, src_dir.canonicalize().expect("canonical subdir"));
+    }
+
+    #[test]
+    fn resolve_working_directory_defaults_to_workspace_root() {
+        let workspace = tempfile::tempdir().expect("workspace tempdir");
+
+        let resolved =
+            resolve_working_directory(workspace.path(), None).expect("resolve workspace root");
+
+        assert_eq!(
+            resolved,
+            workspace
+                .path()
+                .canonicalize()
+                .expect("canonical workspace")
+        );
     }
 }
