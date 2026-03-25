@@ -2,7 +2,7 @@ name: Release Beta
 
 on:
   push:
-    branches: [master]
+    branches: [main, master]
 
 concurrency:
   group: release-beta
