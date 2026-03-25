@@ -2,12 +2,12 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [main, master]
   pull_request:
-    branches: [master]
+    branches: [main, master]
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || 'push-master' }}
+  group: ci-${{ github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: true
 
 permissions:
