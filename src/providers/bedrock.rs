@@ -1188,6 +1188,8 @@ impl Provider for BedrockProvider {
 mod tests {
     use super::*;
     use crate::providers::traits::ChatMessage;
+    use std::sync::OnceLock;
+    use tokio::sync::{Mutex, MutexGuard};
 
     /// RAII guard that sets/unsets an env var and restores the original on drop.
     struct EnvGuard {
@@ -1216,6 +1218,19 @@ mod tests {
                 None => std::env::remove_var(&self.key),
             }
         }
+    }
+
+    fn env_mutex() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn env_lock() -> MutexGuard<'static, ()> {
+        env_mutex().blocking_lock()
+    }
+
+    async fn env_lock_async() -> MutexGuard<'static, ()> {
+        env_mutex().lock().await
     }
 
     // ── SigV4 signing tests ─────────────────────────────────────
@@ -1363,12 +1378,22 @@ mod tests {
 
     #[test]
     fn creates_without_credentials() {
+        let _env_lock = env_lock();
+        let _bearer_guard = EnvGuard::set("BEDROCK_API_KEY", None);
+        let _ak_guard = EnvGuard::set("AWS_ACCESS_KEY_ID", None);
+        let _sk_guard = EnvGuard::set("AWS_SECRET_ACCESS_KEY", None);
+        let _session_guard = EnvGuard::set("AWS_SESSION_TOKEN", None);
         // Provider should construct even without env vars.
         let _provider = BedrockProvider::new();
     }
 
     #[tokio::test]
     async fn chat_fails_without_credentials() {
+        let _env_lock = env_lock_async().await;
+        let _bearer_guard = EnvGuard::set("BEDROCK_API_KEY", None);
+        let _ak_guard = EnvGuard::set("AWS_ACCESS_KEY_ID", None);
+        let _sk_guard = EnvGuard::set("AWS_SECRET_ACCESS_KEY", None);
+        let _session_guard = EnvGuard::set("AWS_SESSION_TOKEN", None);
         let provider = BedrockProvider {
             auth: None,
             max_tokens: DEFAULT_MAX_TOKENS,
@@ -1400,10 +1425,12 @@ mod tests {
 
     #[test]
     fn bearer_token_from_env() {
+        let _env_lock = env_lock();
         let _guard = EnvGuard::set("BEDROCK_API_KEY", Some("env-bearer-token"));
         // Clear SigV4 vars to ensure Bearer is chosen.
         let _ak_guard = EnvGuard::set("AWS_ACCESS_KEY_ID", None);
         let _sk_guard = EnvGuard::set("AWS_SECRET_ACCESS_KEY", None);
+        let _session_guard = EnvGuard::set("AWS_SESSION_TOKEN", None);
 
         let provider = BedrockProvider::new();
         assert!(matches!(
@@ -1414,9 +1441,11 @@ mod tests {
 
     #[test]
     fn bearer_token_precedence() {
+        let _env_lock = env_lock();
         let _bearer_guard = EnvGuard::set("BEDROCK_API_KEY", Some("bearer-key"));
         let _ak_guard = EnvGuard::set("AWS_ACCESS_KEY_ID", Some("AKIAEXAMPLE"));
         let _sk_guard = EnvGuard::set("AWS_SECRET_ACCESS_KEY", Some("secret"));
+        let _session_guard = EnvGuard::set("AWS_SESSION_TOKEN", None);
 
         let provider = BedrockProvider::new();
         // Bearer token should take priority over SigV4 credentials.
