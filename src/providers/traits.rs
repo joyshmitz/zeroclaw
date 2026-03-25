@@ -548,6 +548,7 @@ pub fn build_tool_instructions_text(tools: &[ToolSpec]) -> String {
 mod tests {
     use super::*;
     use futures_util::StreamExt;
+    use std::sync::{Arc, Mutex};
 
     struct CapabilityMockProvider;
 
@@ -1046,6 +1047,44 @@ mod tests {
         }
     }
 
+    struct StreamingFallbackProvider {
+        seen_system: Arc<Mutex<Vec<Option<String>>>>,
+        seen_messages: Arc<Mutex<Vec<String>>>,
+    }
+
+    #[async_trait]
+    impl Provider for StreamingFallbackProvider {
+        async fn chat_with_system(
+            &self,
+            _system: Option<&str>,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            Ok("unused".to_string())
+        }
+
+        fn stream_chat_with_system(
+            &self,
+            system_prompt: Option<&str>,
+            message: &str,
+            _model: &str,
+            _temperature: f64,
+            _options: StreamOptions,
+        ) -> stream::BoxStream<'static, StreamResult<StreamChunk>> {
+            self.seen_system
+                .lock()
+                .unwrap()
+                .push(system_prompt.map(ToOwned::to_owned));
+            self.seen_messages.lock().unwrap().push(message.to_string());
+            stream::iter(vec![
+                Ok(StreamChunk::delta("partial")),
+                Ok(StreamChunk::final_chunk()),
+            ])
+            .boxed()
+        }
+    }
+
     #[tokio::test]
     async fn provider_stream_chat_default_maps_legacy_chunks_to_events() {
         let provider = StreamingChunkOnlyProvider;
@@ -1068,5 +1107,42 @@ mod tests {
             other => panic!("expected text delta event, got {other:?}"),
         }
         assert!(matches!(second, StreamEvent::Final));
+    }
+
+    #[tokio::test]
+    async fn stream_chat_with_history_falls_back_to_system_streaming() {
+        let seen_system = Arc::new(Mutex::new(Vec::new()));
+        let seen_messages = Arc::new(Mutex::new(Vec::new()));
+        let provider = StreamingFallbackProvider {
+            seen_system: Arc::clone(&seen_system),
+            seen_messages: Arc::clone(&seen_messages),
+        };
+
+        let chunks: Vec<_> = provider
+            .stream_chat_with_history(
+                &[
+                    ChatMessage::assistant("previous"),
+                    ChatMessage::system("SYSTEM"),
+                    ChatMessage::user("latest user"),
+                ],
+                "model",
+                0.2,
+                StreamOptions::new(true),
+            )
+            .collect()
+            .await;
+
+        assert_eq!(
+            seen_system.lock().unwrap().as_slice(),
+            &[Some("SYSTEM".into())]
+        );
+        let expected_messages = [String::from("latest user")];
+        assert_eq!(
+            seen_messages.lock().unwrap().as_slice(),
+            expected_messages.as_slice()
+        );
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0].as_ref().unwrap().delta, "partial");
+        assert!(chunks[1].as_ref().unwrap().is_final);
     }
 }

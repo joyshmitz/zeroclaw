@@ -377,6 +377,28 @@ async fn turn_returns_text_when_no_tools_called() {
     );
 }
 
+#[tokio::test]
+async fn turn_streamed_uses_current_datetime_enrichment() {
+    let provider = Box::new(ScriptedProvider::new(vec![text_response(
+        "stream response",
+    )]));
+    let mut agent = build_agent_with(provider, vec![], Box::new(NativeToolDispatcher));
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+
+    let response = agent.turn_streamed("hello", tx).await.unwrap();
+    assert_eq!(response, "stream response");
+
+    let history = agent.history();
+    match &history[1] {
+        ConversationMessage::Chat(c) => {
+            assert_eq!(c.role, "user");
+            assert!(c.content.starts_with("[CURRENT DATE & TIME: "));
+            assert!(c.content.ends_with("hello"));
+        }
+        other => panic!("Expected Chat variant for user message, got: {other:?}"),
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 2. Single tool call → final response
 // ═══════════════════════════════════════════════════════════════════════════
