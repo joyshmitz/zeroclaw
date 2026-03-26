@@ -137,6 +137,7 @@ Last refreshed: **March 26, 2026**.
 
 - [maintainers/README.md](maintainers/README.md)
 - [fork-strategy-memo.md](maintainers/fork-strategy-memo.md)
+- [technology-watchlist-framework.md](maintainers/technology-watchlist-framework.md)
 - [fork-operating-model.md](maintainers/fork-operating-model.md)
 - [fork-release-policy.md](maintainers/fork-release-policy.md)
 - [upstream-intake-log.md](maintainers/upstream-intake-log.md)

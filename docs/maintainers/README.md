@@ -5,6 +5,7 @@ Maintainer-facing documents for fork control, upstream intake, architecture pres
 ## Fork Control
 
 - [fork-strategy-memo.md](fork-strategy-memo.md) - canonical strategic entry point for fork identity, boundaries, and near-term direction
+- [technology-watchlist-framework.md](technology-watchlist-framework.md) - how maintainers watch external future-replacement candidates without turning curiosity into roadmap
 - [fork-operating-model.md](fork-operating-model.md) - canonical fork-control model and decision hierarchy
 - [fork-release-policy.md](fork-release-policy.md) - release, tag, publish, and CI ownership rules for the fork
 - [repo-separation-criteria.md](repo-separation-criteria.md) - thresholds for staying in managed independence or preparing repo separation
@@ -38,6 +39,7 @@ Maintainer-facing documents for fork control, upstream intake, architecture pres
 ## How To Use This Set
 
 - Use [fork-strategy-memo.md](fork-strategy-memo.md) first when the question is product identity, fork/upstream boundary, or the next strategic cycle.
+- Use [technology-watchlist-framework.md](technology-watchlist-framework.md) when evaluating frontier external projects as possible future replacements for fork-owned seams.
 - Use [fork-operating-model.md](fork-operating-model.md) as the canonical fork-control document.
 - Use [fork-release-policy.md](fork-release-policy.md) before changing release automation, tags, publishing, or CI ownership.
 - Update [upstream-intake-log.md](upstream-intake-log.md) on every non-trivial upstream observation pass and every upstream intake.

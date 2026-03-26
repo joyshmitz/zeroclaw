@@ -203,6 +203,8 @@ Use this reading order for strategic work:
 4. [formal-core-implementation-map.md](formal-core-implementation-map.md)
 5. [first-governed-case-mvp-plan.md](first-governed-case-mvp-plan.md)
 6. [seam-ownership-roadmap.md](seam-ownership-roadmap.md)
+7. [technology-watchlist-framework.md](technology-watchlist-framework.md) when
+   evaluating future external replacement candidates
 
 ## Update Rule
 
