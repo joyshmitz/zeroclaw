@@ -16,7 +16,8 @@ Its current product thesis is a PDCA-governed response runtime centered on:
 
 For that framing, use:
 
-- [`PLAN_TO_FUTURE_PRODUCT.md`](/data/projects/zeroclaw/PLAN_TO_FUTURE_PRODUCT.md)
+- [fork-strategy-memo.md](fork-strategy-memo.md)
+- [`PLAN_TO_FUTURE_PRODUCT.md`](../../PLAN_TO_FUTURE_PRODUCT.md)
 - [fork-architecture-brief.md](fork-architecture-brief.md)
 - [first-governed-case-mvp-plan.md](first-governed-case-mvp-plan.md)
 - [conflict-surface-map.md](conflict-surface-map.md)
