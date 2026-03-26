@@ -2,7 +2,7 @@
 
 This file is the canonical table of contents for the documentation system.
 
-Last refreshed: **March 23, 2026**.
+Last refreshed: **March 26, 2026**.
 
 ## Language Entry
 
@@ -136,6 +136,7 @@ Last refreshed: **March 23, 2026**.
 ### 7) Maintainer Control & Snapshot
 
 - [maintainers/README.md](maintainers/README.md)
+- [fork-strategy-memo.md](maintainers/fork-strategy-memo.md)
 - [fork-operating-model.md](maintainers/fork-operating-model.md)
 - [fork-release-policy.md](maintainers/fork-release-policy.md)
 - [upstream-intake-log.md](maintainers/upstream-intake-log.md)

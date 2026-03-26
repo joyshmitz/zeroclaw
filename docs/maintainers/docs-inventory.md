@@ -2,7 +2,7 @@
 
 This inventory classifies docs by intent so readers can quickly distinguish runtime-contract guides from design proposals.
 
-Last reviewed: **March 23, 2026**.
+Last reviewed: **March 26, 2026**.
 
 ## Classification Legend
 
@@ -44,6 +44,7 @@ Last reviewed: **March 23, 2026**.
 
 | Doc | Type | Audience |
 |---|---|---|
+| `docs/maintainers/fork-strategy-memo.md` | Policy / Decision Framework | maintainers |
 | `docs/maintainers/fork-operating-model.md` | Policy / Process | maintainers |
 | `docs/maintainers/fork-release-policy.md` | Policy / Process | maintainers |
 | `docs/maintainers/upstream-intake-log.md` | Process Log | maintainers |
