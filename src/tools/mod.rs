@@ -39,6 +39,7 @@ pub mod cron_update;
 pub mod data_management;
 pub mod delegate;
 pub mod discord_search;
+pub mod escalate;
 pub mod file_edit;
 pub mod file_read;
 pub mod file_write;
@@ -65,6 +66,7 @@ pub mod mcp_deferred;
 pub mod mcp_protocol;
 pub mod mcp_tool;
 pub mod mcp_transport;
+pub mod memory_export;
 pub mod memory_forget;
 pub mod memory_purge;
 pub mod memory_recall;
@@ -84,6 +86,7 @@ pub mod proxy_config;
 pub mod pushover;
 pub mod reaction;
 pub mod read_skill;
+pub mod report_template_tool;
 pub mod report_templates;
 pub mod schedule;
 pub mod schema;
@@ -136,6 +139,7 @@ pub use delegate::DelegateTool;
 #[allow(unused_imports)]
 pub use delegate::{BackgroundDelegateResult, BackgroundTaskStatus};
 pub use discord_search::DiscordSearchTool;
+pub use escalate::EscalateToHumanTool;
 pub use file_edit::FileEditTool;
 pub use file_read::FileReadTool;
 pub use file_write::FileWriteTool;
@@ -159,6 +163,7 @@ pub use llm_task::LlmTaskTool;
 pub use mcp_client::McpRegistry;
 pub use mcp_deferred::{ActivatedToolSet, DeferredMcpToolSet};
 pub use mcp_tool::McpToolWrapper;
+pub use memory_export::MemoryExportTool;
 pub use memory_forget::MemoryForgetTool;
 pub use memory_purge::MemoryPurgeTool;
 pub use memory_recall::MemoryRecallTool;
@@ -177,6 +182,7 @@ pub use proxy_config::ProxyConfigTool;
 pub use pushover::PushoverTool;
 pub use reaction::ReactionTool;
 pub use read_skill::ReadSkillTool;
+pub use report_template_tool::ReportTemplateTool;
 pub use schedule::ScheduleTool;
 #[allow(unused_imports)]
 pub use schema::{CleaningStrategy, SchemaCleanr};
@@ -348,6 +354,7 @@ pub fn all_tools(
     Option<ChannelMapHandle>,
     ChannelMapHandle,
     Option<ChannelMapHandle>,
+    Option<ChannelMapHandle>,
 ) {
     all_tools_with_runtime(
         config,
@@ -396,6 +403,7 @@ pub fn all_tools_with_runtime(
     Option<ChannelMapHandle>,
     ChannelMapHandle,
     Option<ChannelMapHandle>,
+    Option<ChannelMapHandle>,
 ) {
     let has_shell_access = runtime.has_shell_access();
     let sandbox = create_sandbox(&root_config.security);
@@ -418,6 +426,7 @@ pub fn all_tools_with_runtime(
         Arc::new(MemoryStoreTool::new(memory.clone(), security.clone())),
         Arc::new(MemoryRecallTool::new(memory.clone())),
         Arc::new(MemoryForgetTool::new(memory.clone(), security.clone())),
+        Arc::new(MemoryExportTool::new(memory.clone())),
         Arc::new(MemoryPurgeTool::new(memory.clone(), security.clone())),
         Arc::new(ScheduleTool::new(security.clone(), root_config.clone())),
         Arc::new(ModelRoutingConfigTool::new(
@@ -633,6 +642,9 @@ pub fn all_tools_with_runtime(
         )));
     }
 
+    // Report template tool — standalone, does not require project_intel
+    tool_arcs.push(Arc::new(ReportTemplateTool::new()));
+
     // MCSS Security Operations
     if root_config.security_ops.enabled {
         tool_arcs.push(Arc::new(SecurityOpsTool::new(
@@ -805,6 +817,11 @@ pub fn all_tools_with_runtime(
     let ask_user_handle = ask_user_tool.channel_map_handle();
     tool_arcs.push(Arc::new(ask_user_tool));
 
+    // Human escalation tool — always registered; channel map populated later by start_channels.
+    let escalate_tool = EscalateToHumanTool::new(security.clone(), workspace_dir.to_path_buf());
+    let escalate_handle = escalate_tool.channel_map_handle();
+    tool_arcs.push(Arc::new(escalate_tool));
+
     // Microsoft 365 Graph API integration
     if root_config.microsoft365.enabled {
         let ms_cfg = &root_config.microsoft365;
@@ -837,6 +854,7 @@ pub fn all_tools_with_runtime(
                     Some(reaction_handle),
                     channel_map_handle,
                     Some(ask_user_handle),
+                    Some(escalate_handle),
                 );
             }
 
@@ -1060,6 +1078,7 @@ pub fn all_tools_with_runtime(
         Some(reaction_handle),
         channel_map_handle,
         Some(ask_user_handle),
+        Some(escalate_handle),
     )
 }
 
@@ -1104,7 +1123,7 @@ mod tests {
         let http = crate::config::HttpRequestConfig::default();
         let cfg = test_config(&tmp);
 
-        let (tools, _, _, _, _) = all_tools(
+        let (tools, _, _, _, _, _) = all_tools(
             Arc::new(Config::default()),
             &security,
             mem,
@@ -1148,7 +1167,7 @@ mod tests {
         let http = crate::config::HttpRequestConfig::default();
         let cfg = test_config(&tmp);
 
-        let (tools, _, _, _, _) = all_tools(
+        let (tools, _, _, _, _, _) = all_tools(
             Arc::new(Config::default()),
             &security,
             mem,
@@ -1303,7 +1322,7 @@ mod tests {
             },
         );
 
-        let (tools, _, _, _, _) = all_tools(
+        let (tools, _, _, _, _, _) = all_tools(
             Arc::new(Config::default()),
             &security,
             mem,
@@ -1338,7 +1357,7 @@ mod tests {
         let http = crate::config::HttpRequestConfig::default();
         let cfg = test_config(&tmp);
 
-        let (tools, _, _, _, _) = all_tools(
+        let (tools, _, _, _, _, _) = all_tools(
             Arc::new(Config::default()),
             &security,
             mem,
@@ -1374,7 +1393,7 @@ mod tests {
         let mut cfg = test_config(&tmp);
         cfg.skills.prompt_injection_mode = crate::config::SkillsPromptInjectionMode::Compact;
 
-        let (tools, _, _, _, _) = all_tools(
+        let (tools, _, _, _, _, _) = all_tools(
             Arc::new(cfg.clone()),
             &security,
             mem,
@@ -1410,7 +1429,7 @@ mod tests {
         let mut cfg = test_config(&tmp);
         cfg.skills.prompt_injection_mode = crate::config::SkillsPromptInjectionMode::Full;
 
-        let (tools, _, _, _, _) = all_tools(
+        let (tools, _, _, _, _, _) = all_tools(
             Arc::new(cfg.clone()),
             &security,
             mem,
