@@ -6,11 +6,13 @@ on self-hosted PaaS platforms.
 ## Platforms
 
 ### Coolify (coollabsio/coolify)
+
 - Template: `coolify/zeroclaw.yaml` -> goes to `templates/compose/zeroclaw.yaml` in their repo
 - Logo: needs `zeroclaw.svg` in their `svgs/` directory
 - PR target branch: `next` (CRITICAL — they close PRs to other branches)
 
 ### Dokploy (Dokploy/templates)
+
 - Blueprint: `dokploy/blueprints/zeroclaw/` -> goes to `blueprints/zeroclaw/` in their repo
 - Meta entry: `dokploy/meta-entry.json` -> merge into root `meta.json`
 - Logo: needs `zeroclaw.svg` in the blueprint folder
@@ -18,6 +20,7 @@ on self-hosted PaaS platforms.
 - IMPORTANT: Dokploy requires pinned image versions (no `latest` tag)
 
 ### EasyPanel (easypanel-io/templates)
+
 - Template: `easypanel/` -> goes to `templates/zeroclaw/` in their repo
 - Files: `meta.yaml` (metadata + schema), `index.ts` (generator logic), `assets/logo.svg`
 - PR target branch: `main`
