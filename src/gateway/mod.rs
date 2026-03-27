@@ -13,8 +13,10 @@ pub mod api_pairing;
 pub mod api_plugins;
 #[cfg(feature = "webauthn")]
 pub mod api_webauthn;
+pub mod auth_rate_limit;
 pub mod canvas;
 pub mod nodes;
+pub mod session_queue;
 pub mod sse;
 pub mod static_files;
 pub mod tls;
@@ -330,6 +332,7 @@ pub struct AppState {
     pub pairing: Arc<PairingGuard>,
     pub trust_forwarded_headers: bool,
     pub rate_limiter: Arc<GatewayRateLimiter>,
+    pub auth_limiter: Arc<auth_rate_limit::AuthRateLimiter>,
     pub idempotency_store: Arc<IdempotencyStore>,
     pub whatsapp: Option<Arc<WhatsAppChannel>>,
     /// `WhatsApp` app secret for webhook signature verification (`X-Hub-Signature-256`)
@@ -359,6 +362,8 @@ pub struct AppState {
     pub path_prefix: String,
     /// Session backend for persisting gateway WS chat sessions
     pub session_backend: Option<Arc<dyn SessionBackend>>,
+    /// Per-session actor queue for serializing concurrent turns
+    pub session_queue: Arc<session_queue::SessionActorQueue>,
     /// Device registry for paired device management
     pub device_registry: Option<Arc<api_pairing::DeviceRegistry>>,
     /// Pending pairing request store
@@ -373,16 +378,14 @@ pub struct AppState {
 /// Run the HTTP gateway using axum with proper HTTP/1.1 compliance.
 #[allow(clippy::too_many_lines)]
 pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
-    // ── Security: refuse public bind without tunnel or explicit opt-in ──
+    // ── Security: warn on public bind without tunnel or explicit opt-in ──
     if is_public_bind(host) && config.tunnel.provider == "none" && !config.gateway.allow_public_bind
     {
-        anyhow::bail!(
-            "🛑 Refusing to bind to {host} — gateway would be exposed to the internet.\n\
-             Fix: use --host 127.0.0.1 (default), configure a tunnel, or set\n\
-             [gateway] allow_public_bind = true in config.toml (NOT recommended).\n\n\
-             Docker: if you need to reach the gateway from a Docker container, set\n\
-             [gateway] host = \"0.0.0.0\" and allow_public_bind = true in config.toml,\n\
-             then connect from the container via ws://host.docker.internal:{port}."
+        tracing::warn!(
+            "⚠️  Binding to {host} — gateway will be exposed to all network interfaces.\n\
+             Suggestion: use --host 127.0.0.1 (default), configure a tunnel, or set\n\
+             [gateway] allow_public_bind = true in config.toml to silence this warning.\n\n\
+             Docker/VM: if you are running inside a container or VM, this is expected."
         );
     }
     let config_state = Arc::new(Mutex::new(config.clone()));
@@ -629,6 +632,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
             Arc::new(NextcloudTalkChannel::new(
                 nc.base_url.clone(),
                 nc.app_token.clone(),
+                nc.bot_name.clone().unwrap_or_default(),
                 nc.allowed_users.clone(),
             ))
         });
@@ -828,6 +832,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         pairing,
         trust_forwarded_headers: config.gateway.trust_forwarded_headers,
         rate_limiter,
+        auth_limiter: Arc::new(auth_rate_limit::AuthRateLimiter::new()),
         idempotency_store,
         whatsapp: whatsapp_channel,
         whatsapp_app_secret,
@@ -844,6 +849,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         shutdown_tx,
         node_registry,
         session_backend,
+        session_queue: Arc::new(session_queue::SessionActorQueue::new(8, 30, 600)),
         device_registry,
         pending_pairings,
         path_prefix: path_prefix.unwrap_or("").to_string(),
@@ -889,6 +895,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route("/health", get(handle_health))
         .route("/metrics", get(handle_metrics))
         .route("/pair", post(handle_pair))
+        .route("/pair/code", get(handle_pair_code))
         .route("/webhook", post(handle_webhook))
         .route("/whatsapp", get(handle_whatsapp_verify))
         .route("/whatsapp", post(handle_whatsapp_message))
@@ -930,7 +937,13 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route("/api/cli-tools", get(api::handle_api_cli_tools))
         .route("/api/health", get(api::handle_api_health))
         .route("/api/sessions", get(api::handle_api_sessions_list))
+        .route("/api/sessions/running", get(api::handle_api_sessions_running))
+        .route(
+            "/api/sessions/{id}/messages",
+            get(api::handle_api_session_messages),
+        )
         .route("/api/sessions/{id}", delete(api::handle_api_session_delete).put(api::handle_api_session_rename))
+        .route("/api/sessions/{id}/state", get(api::handle_api_session_state))
         // ── Pairing + Device management API ──
         .route("/api/pairing/initiate", post(api_pairing::initiate_pairing))
         .route("/api/pair", post(api_pairing::submit_pairing_enhanced))
@@ -1187,6 +1200,16 @@ async fn handle_pair(
         return (StatusCode::TOO_MANY_REQUESTS, Json(err));
     }
 
+    // ── Auth rate limiting (brute-force protection) ──
+    if let Err(e) = state.auth_limiter.check_rate_limit(&rate_key) {
+        tracing::warn!("🔐 Pairing auth rate limit exceeded for {rate_key}");
+        let err = serde_json::json!({
+            "error": format!("Too many auth attempts. Try again in {}s.", e.retry_after_secs),
+            "retry_after": e.retry_after_secs,
+        });
+        return (StatusCode::TOO_MANY_REQUESTS, Json(err));
+    }
+
     let code = headers
         .get("X-Pairing-Code")
         .and_then(|v| v.to_str().ok())
@@ -1217,6 +1240,7 @@ async fn handle_pair(
             (StatusCode::OK, Json(body))
         }
         Ok(None) => {
+            state.auth_limiter.record_attempt(&rate_key);
             tracing::warn!("🔐 Pairing attempt with invalid code");
             let err = serde_json::json!({"error": "Invalid pairing code"});
             (StatusCode::FORBIDDEN, Json(err))
@@ -1316,14 +1340,23 @@ async fn handle_webhook(
         return (StatusCode::TOO_MANY_REQUESTS, Json(err));
     }
 
-    // ── Bearer token auth (pairing) ──
+    // ── Bearer token auth (pairing) with auth rate limiting ──
     if state.pairing.require_pairing() {
+        if let Err(e) = state.auth_limiter.check_rate_limit(&rate_key) {
+            tracing::warn!("Webhook: auth rate limit exceeded for {rate_key}");
+            let err = serde_json::json!({
+                "error": format!("Too many auth attempts. Try again in {}s.", e.retry_after_secs),
+                "retry_after": e.retry_after_secs,
+            });
+            return (StatusCode::TOO_MANY_REQUESTS, Json(err));
+        }
         let auth = headers
             .get(header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok())
             .unwrap_or("");
         let token = auth.strip_prefix("Bearer ").unwrap_or("");
         if !state.pairing.is_authenticated(token) {
+            state.auth_limiter.record_attempt(&rate_key);
             tracing::warn!("Webhook: rejected — not paired / invalid bearer token");
             let err = serde_json::json!({
                 "error": "Unauthorized — pair first via POST /pair, then send Authorization: Bearer <token>"
@@ -2181,6 +2214,33 @@ async fn handle_admin_paircode_new(
     }
 }
 
+/// GET /pair/code — fetch the initial pairing code (no auth, no localhost restriction).
+///
+/// This endpoint is intentionally public so that Docker and remote users can see
+/// the pairing code on the web dashboard without needing terminal access. It only
+/// returns a code when the gateway is in its initial un-paired state (no devices
+/// paired yet and a pairing code exists). Once the first device pairs, this
+/// endpoint stops returning a code.
+async fn handle_pair_code(State(state): State<AppState>) -> impl IntoResponse {
+    let require = state.pairing.require_pairing();
+    let is_paired = state.pairing.is_paired();
+
+    // Only expose the code during initial setup (before first pairing)
+    let code = if require && !is_paired {
+        state.pairing.pairing_code()
+    } else {
+        None
+    };
+
+    let body = serde_json::json!({
+        "success": true,
+        "pairing_required": require,
+        "pairing_code": code,
+    });
+
+    (StatusCode::OK, Json(body))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2258,6 +2318,7 @@ mod tests {
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            auth_limiter: Arc::new(auth_rate_limit::AuthRateLimiter::new()),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
@@ -2275,6 +2336,9 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             path_prefix: String::new(),
             session_backend: None,
+            session_queue: std::sync::Arc::new(
+                crate::gateway::session_queue::SessionActorQueue::new(8, 30, 600),
+            ),
             device_registry: None,
             pending_pairings: None,
             canvas_store: CanvasStore::new(),
@@ -2322,6 +2386,7 @@ mod tests {
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            auth_limiter: Arc::new(auth_rate_limit::AuthRateLimiter::new()),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
@@ -2339,6 +2404,9 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             path_prefix: String::new(),
             session_backend: None,
+            session_queue: std::sync::Arc::new(
+                crate::gateway::session_queue::SessionActorQueue::new(8, 30, 600),
+            ),
             device_registry: None,
             pending_pairings: None,
             canvas_store: CanvasStore::new(),
@@ -2712,6 +2780,7 @@ mod tests {
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            auth_limiter: Arc::new(auth_rate_limit::AuthRateLimiter::new()),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
@@ -2729,6 +2798,9 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             path_prefix: String::new(),
             session_backend: None,
+            session_queue: std::sync::Arc::new(
+                crate::gateway::session_queue::SessionActorQueue::new(8, 30, 600),
+            ),
             device_registry: None,
             pending_pairings: None,
             canvas_store: CanvasStore::new(),
@@ -2786,6 +2858,7 @@ mod tests {
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            auth_limiter: Arc::new(auth_rate_limit::AuthRateLimiter::new()),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
@@ -2803,6 +2876,9 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             path_prefix: String::new(),
             session_backend: None,
+            session_queue: std::sync::Arc::new(
+                crate::gateway::session_queue::SessionActorQueue::new(8, 30, 600),
+            ),
             device_registry: None,
             pending_pairings: None,
             canvas_store: CanvasStore::new(),
@@ -2872,6 +2948,7 @@ mod tests {
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            auth_limiter: Arc::new(auth_rate_limit::AuthRateLimiter::new()),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
@@ -2889,6 +2966,9 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             path_prefix: String::new(),
             session_backend: None,
+            session_queue: std::sync::Arc::new(
+                crate::gateway::session_queue::SessionActorQueue::new(8, 30, 600),
+            ),
             device_registry: None,
             pending_pairings: None,
             canvas_store: CanvasStore::new(),
@@ -2930,6 +3010,7 @@ mod tests {
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            auth_limiter: Arc::new(auth_rate_limit::AuthRateLimiter::new()),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
@@ -2947,6 +3028,9 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             path_prefix: String::new(),
             session_backend: None,
+            session_queue: std::sync::Arc::new(
+                crate::gateway::session_queue::SessionActorQueue::new(8, 30, 600),
+            ),
             device_registry: None,
             pending_pairings: None,
             canvas_store: CanvasStore::new(),
@@ -2993,6 +3077,7 @@ mod tests {
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            auth_limiter: Arc::new(auth_rate_limit::AuthRateLimiter::new()),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
@@ -3010,6 +3095,9 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             path_prefix: String::new(),
             session_backend: None,
+            session_queue: std::sync::Arc::new(
+                crate::gateway::session_queue::SessionActorQueue::new(8, 30, 600),
+            ),
             device_registry: None,
             pending_pairings: None,
             canvas_store: CanvasStore::new(),
@@ -3061,6 +3149,7 @@ mod tests {
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            auth_limiter: Arc::new(auth_rate_limit::AuthRateLimiter::new()),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
@@ -3078,6 +3167,9 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             path_prefix: String::new(),
             session_backend: None,
+            session_queue: std::sync::Arc::new(
+                crate::gateway::session_queue::SessionActorQueue::new(8, 30, 600),
+            ),
             device_registry: None,
             pending_pairings: None,
             canvas_store: CanvasStore::new(),
@@ -3105,6 +3197,7 @@ mod tests {
         let channel = Arc::new(NextcloudTalkChannel::new(
             "https://cloud.example.com".into(),
             "app-token".into(),
+            String::new(),
             vec!["*".into()],
         ));
 
@@ -3125,6 +3218,7 @@ mod tests {
             pairing: Arc::new(PairingGuard::new(false, &[])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            auth_limiter: Arc::new(auth_rate_limit::AuthRateLimiter::new()),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
@@ -3142,6 +3236,9 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             path_prefix: String::new(),
             session_backend: None,
+            session_queue: std::sync::Arc::new(
+                crate::gateway::session_queue::SessionActorQueue::new(8, 30, 600),
+            ),
             device_registry: None,
             pending_pairings: None,
             canvas_store: CanvasStore::new(),
