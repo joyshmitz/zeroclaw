@@ -78,6 +78,9 @@ Upstream remains important, but it does not outrank fork identity.
 - do not refactor on the first painful merge
 - do not normalize repeated merge debt forever either
 - use [seam-ownership-roadmap.md](seam-ownership-roadmap.md) to decide when a shared surface now needs a fork-owned boundary
+- prefer configuring upstream components over writing fork-specific code
+- fork code should be limited to the orchestration chain; everything else should be configuration
+- SOP plumbing (engine parameters, constructor changes) is upstream's responsibility — the fork should not carry custom SOP wiring through shared surfaces
 
 ### 5. Documentation
 

@@ -620,7 +620,7 @@ async fn build_context(
             if context == "[Memory context]\n" {
                 context.clear();
             } else {
-                context.push('\n');
+                context.push_str("[/Memory context]\n\n");
             }
         }
     }
@@ -2399,6 +2399,11 @@ async fn consume_provider_streaming_response(
                     outcome.forwarded_live_deltas = false;
                 }
             }
+            StreamEvent::PreExecutedToolCall { .. } | StreamEvent::PreExecutedToolResult { .. } => {
+                // Pre-executed tool events are for observability only.
+                // They are forwarded to the gateway via turn_streamed but
+                // do not affect the agent's tool dispatch loop.
+            }
             StreamEvent::TextDelta(chunk) => {
                 if chunk.delta.is_empty() {
                     continue;
@@ -2501,6 +2506,36 @@ fn maybe_inject_channel_delivery_defaults(
     channel_name: &str,
     channel_reply_target: Option<&str>,
 ) {
+    // Inject active channel + recipient into escalate_to_human when not
+    // explicitly provided, so the escalation reaches the right destination.
+    // Treat missing, null, non-string, and empty-string values the same way
+    // — all mean "model didn't supply a usable value".
+    if tool_name == "escalate_to_human" {
+        if let Some(args) = tool_args.as_object_mut() {
+            let channel_usable = args
+                .get("channel")
+                .and_then(|v| v.as_str())
+                .is_some_and(|s| !s.trim().is_empty());
+            if !channel_usable {
+                args.insert("channel".into(), serde_json::json!(channel_name));
+            }
+
+            let recipient_usable = args
+                .get("recipient")
+                .and_then(|v| v.as_str())
+                .is_some_and(|s| !s.trim().is_empty());
+            if !recipient_usable {
+                if let Some(rt) = channel_reply_target
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+                {
+                    args.insert("recipient".into(), serde_json::json!(rt));
+                }
+            }
+        }
+        return;
+    }
+
     if tool_name != "cron_add" {
         return;
     }
@@ -2984,6 +3019,13 @@ pub(crate) async fn run_tool_call_loop(
         let should_consume_provider_stream = on_delta.is_some()
             && provider.supports_streaming()
             && (request_tools.is_none() || provider.supports_streaming_tool_events());
+        tracing::debug!(
+            has_on_delta = on_delta.is_some(),
+            supports_streaming = provider.supports_streaming(),
+            should_consume_provider_stream,
+            "Streaming decision for iteration {}",
+            iteration + 1,
+        );
         let mut streamed_live_deltas = false;
 
         let chat_result = if should_consume_provider_stream {
@@ -3867,6 +3909,7 @@ pub async fn run(
         _reaction_handle,
         _channel_map_handle,
         _ask_user_handle,
+        _escalate_handle,
     ) = tools::all_tools_with_runtime(
         Arc::new(config.clone()),
         &security,
@@ -4808,6 +4851,7 @@ pub async fn process_message(
         _reaction_handle_pm,
         _channel_map_handle_pm,
         _ask_user_handle_pm,
+        _escalate_handle_pm,
     ) = tools::all_tools_with_runtime(
         Arc::new(config.clone()),
         &security,

@@ -78,6 +78,8 @@ This pipeline is architectural, not transport-specific.
 
 ## Fork-Owned Seams
 
+The fork's architectural posture is orchestration over upstream substrate. Each seam below should be understood as an orchestration concern — the fork connects existing upstream components, not replaces them. Where a seam can be satisfied by configuring an upstream component, configuration is preferred over custom code.
+
 The fork needs explicit ownership of the following seams.
 
 ### 1. Signal Classification Seam
@@ -96,6 +98,8 @@ Purpose:
 
 This seam is the first point where the fork stops being a generic inbox/runtime substrate and becomes a governed response runtime.
 
+**Implementation posture:** primarily configuration. Upstream classifier already provides rule-based classification with configurable keywords, patterns, and priorities. Fork work: define classification rules that carry signal-type meaning. Orchestration code needed only for the routing decision that acts on classifier output.
+
 ### 2. Governed Case Seam
 
 Location in flow:
@@ -111,6 +115,8 @@ Purpose:
 - become the durable operational unit of the fork rather than a transport-local draft
 
 This seam should become the central operational unit of the fork.
+
+**Implementation posture:** orchestration code required. No upstream component provides governed case identity, lifecycle, or state. This is the primary fork-owned code surface — minimal but irreducible.
 
 ### 3. Pre-Planning / Response-Envelope Seam
 
@@ -134,6 +140,8 @@ Purpose:
 
 This seam is where selective cognition becomes architectural rather than rhetorical.
 
+**Implementation posture:** orchestration code with configuration. The decision logic is fork code; the enforcement uses upstream SecurityPolicy, ApprovalManager, and AutonomyLevel. Configuration defines thresholds and boundaries.
+
 ### 4. Evidence and Governance Seam
 
 Location in flow:
@@ -150,6 +158,8 @@ Purpose:
 
 Without this seam, the fork collapses back into generic tool-calling behavior.
 
+**Implementation posture:** primarily configuration over upstream substrate. ApprovalManager, SecurityPolicy, SOP audit, and Observer already provide the mechanisms. Fork work: configure what evidence is required per case type and ensure the orchestration layer routes outcomes through existing audit paths.
+
 ### 5. PDCA Feedback Seam
 
 Location in flow:
@@ -163,6 +173,8 @@ Purpose:
 - connect repeated outcomes back to SOP, policy, thresholds, routing, or autonomy
 
 This seam turns governed response into a loop instead of a one-off reaction.
+
+**Implementation posture:** orchestration code required. TrustTracker provides the scoring substrate but the feedback disposition decision (close_only vs plan_change_proposal) and the wiring from SOP outcomes to trust corrections are fork-owned logic.
 
 ## What Upstream Provides As Substrate
 
@@ -275,6 +287,8 @@ Meaning:
 - every governed-capable ingress path evaluates an equivalent admission, case, and response-envelope contract before generic motion
 - this is semantic parity, not a demand that every ingress path share one identical code path
 
+Under orchestration posture: achieved when upstream classifier is configured with signal-type rules on every governed-capable ingress path, and the orchestration layer evaluates classifier output before generic motion on each path.
+
 ### Milestone B: Durable Case Convergence
 
 Meaning:
@@ -282,12 +296,16 @@ Meaning:
 - governed case becomes a durable operational unit
 - case identity and history outlive transport-local messages, webhook calls, and individual SOP runs
 
+Under orchestration posture: achieved when GovernedCase exists as orchestration-layer code (not upstream substrate) with identity and state persisted through upstream session/memory mechanisms.
+
 ### Milestone C: PDCA Convergence
 
 Meaning:
 
 - meaningful outcomes record explicit feedback disposition
 - the runtime can emit reviewable `plan_change_proposal` artifacts rather than leaving PDCA only in prose or logs
+
+Under orchestration posture: achieved when the orchestration layer produces plan_change_proposal artifacts by wiring SOP audit outcomes through TrustTracker and feedback disposition logic.
 
 Current status:
 
@@ -363,5 +381,7 @@ Revisit this brief when one of these becomes true:
 The architectural task is not to replace upstream.
 
 It is to insert a fork-owned governed-response layer between generic runtime ingress and generic runtime action, and to carry that layer through semantic convergence, durable case handling, and PDCA closure.
+
+The fork achieves this not by building custom parallel systems, but by configuring and orchestrating existing upstream components through a thin orchestration layer. The product identity is in the chain and its configuration, not in reimplemented mechanisms.
 
 Until that layer exists, the fork thesis remains correct but only partially operationalized.

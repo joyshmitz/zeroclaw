@@ -1,10 +1,10 @@
 use super::embeddings::EmbeddingProvider;
-use super::traits::{Memory, MemoryCategory, MemoryEntry};
+use super::traits::{ExportFilter, Memory, MemoryCategory, MemoryEntry};
 use super::vector;
 use crate::config::schema::SearchMode;
 use anyhow::Context;
 use async_trait::async_trait;
-use chrono::Local;
+use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 use std::fmt::Write as _;
@@ -282,7 +282,7 @@ impl SqliteMemory {
         }
 
         let hash = Self::content_hash(text);
-        let now = Local::now().to_rfc3339();
+        let now = Utc::now().to_rfc3339();
 
         // Check cache (offloaded to blocking thread)
         let conn = self.conn.clone();
@@ -514,12 +514,12 @@ impl SqliteMemory {
                 idx += 1;
             }
             if let Some(s) = since_ref {
-                let _ = write!(sql, " AND created_at >= ?{idx}");
+                let _ = write!(sql, " AND datetime(created_at) >= datetime(?{idx})");
                 param_values.push(Box::new(s.to_string()));
                 idx += 1;
             }
             if let Some(u) = until_ref {
-                let _ = write!(sql, " AND created_at <= ?{idx}");
+                let _ = write!(sql, " AND datetime(created_at) <= datetime(?{idx})");
                 param_values.push(Box::new(u.to_string()));
                 idx += 1;
             }
@@ -581,7 +581,7 @@ impl Memory for SqliteMemory {
 
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
             let conn = conn.lock();
-            let now = Local::now().to_rfc3339();
+            let now = Utc::now().to_rfc3339();
             let cat = Self::category_to_str(&category);
             let id = Uuid::new_v4().to_string();
 
@@ -727,13 +727,23 @@ impl Memory for SqliteMemory {
                 for scored in &merged {
                     if let Some((key, content, cat, ts, sid, ns, imp, sup)) = entry_map.remove(&scored.id) {
                         if let Some(s) = since_ref {
-                            if ts.as_str() < s {
-                                continue;
+                            if let (Ok(row_dt), Ok(bound_dt)) = (
+                                DateTime::parse_from_rfc3339(&ts),
+                                DateTime::parse_from_rfc3339(s),
+                            ) {
+                                if row_dt.with_timezone(&Utc) < bound_dt.with_timezone(&Utc) {
+                                    continue;
+                                }
                             }
                         }
                         if let Some(u) = until_ref {
-                            if ts.as_str() > u {
-                                continue;
+                            if let (Ok(row_dt), Ok(bound_dt)) = (
+                                DateTime::parse_from_rfc3339(&ts),
+                                DateTime::parse_from_rfc3339(u),
+                            ) {
+                                if row_dt.with_timezone(&Utc) > bound_dt.with_timezone(&Utc) {
+                                    continue;
+                                }
                             }
                         }
                         let entry = MemoryEntry {
@@ -778,11 +788,11 @@ impl Memory for SqliteMemory {
                     let mut param_idx = keywords.len() * 2 + 1;
                     let mut time_conditions = String::new();
                     if since_ref.is_some() {
-                        let _ = write!(time_conditions, " AND created_at >= ?{param_idx}");
+                        let _ = write!(time_conditions, " AND datetime(created_at) >= datetime(?{param_idx})");
                         param_idx += 1;
                     }
                     if until_ref.is_some() {
-                        let _ = write!(time_conditions, " AND created_at <= ?{param_idx}");
+                        let _ = write!(time_conditions, " AND datetime(created_at) <= datetime(?{param_idx})");
                         param_idx += 1;
                     }
                     let sql = format!(
@@ -1005,6 +1015,99 @@ impl Memory for SqliteMemory {
             .unwrap_or(false)
     }
 
+    async fn export(&self, filter: &ExportFilter) -> anyhow::Result<Vec<MemoryEntry>> {
+        let conn = self.conn.clone();
+        let filter = filter.clone();
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<MemoryEntry>> {
+            let conn = conn.lock();
+            let mut sql =
+                "SELECT id, key, content, category, created_at, session_id, namespace, importance, superseded_by \
+                 FROM memories WHERE 1=1"
+                    .to_string();
+            let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+            let mut idx = 1;
+
+            if let Some(ref ns) = filter.namespace {
+                let _ = write!(sql, " AND namespace = ?{idx}");
+                param_values.push(Box::new(ns.clone()));
+                idx += 1;
+            }
+            if let Some(ref sid) = filter.session_id {
+                let _ = write!(sql, " AND session_id = ?{idx}");
+                param_values.push(Box::new(sid.clone()));
+                idx += 1;
+            }
+            if let Some(ref cat) = filter.category {
+                let _ = write!(sql, " AND category = ?{idx}");
+                param_values.push(Box::new(Self::category_to_str(cat)));
+                let _ = idx; // last SQL param — no further idx increments needed
+            }
+            // Time filtering uses parsed UTC comparison (not string comparison)
+            // to handle mixed timezone offsets in upgraded databases where legacy
+            // rows store local offsets (+HH:MM) and new rows store UTC (Z).
+            let since_utc = filter
+                .since
+                .as_deref()
+                .map(DateTime::parse_from_rfc3339)
+                .transpose()
+                .map_err(|e| anyhow::anyhow!("invalid 'since' timestamp: {e}"))?
+                .map(|dt| dt.with_timezone(&Utc));
+            let until_utc = filter
+                .until
+                .as_deref()
+                .map(DateTime::parse_from_rfc3339)
+                .transpose()
+                .map_err(|e| anyhow::anyhow!("invalid 'until' timestamp: {e}"))?
+                .map(|dt| dt.with_timezone(&Utc));
+
+            sql.push_str(" ORDER BY created_at ASC");
+
+            let mut stmt = conn.prepare(&sql)?;
+            let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+                param_values.iter().map(AsRef::as_ref).collect();
+            let rows = stmt.query_map(params_ref.as_slice(), |row| {
+                Ok(MemoryEntry {
+                    id: row.get(0)?,
+                    key: row.get(1)?,
+                    content: row.get(2)?,
+                    category: Self::str_to_category(&row.get::<_, String>(3)?),
+                    timestamp: row.get(4)?,
+                    session_id: row.get(5)?,
+                    score: None,
+                    namespace: row.get::<_, Option<String>>(6)?.unwrap_or_else(|| "default".into()),
+                    importance: row.get(7)?,
+                    superseded_by: row.get(8)?,
+                })
+            })?;
+
+            let mut results = Vec::new();
+            for row in rows {
+                let entry = row?;
+                // Post-filter by time range using parsed UTC comparison
+                if since_utc.is_some() || until_utc.is_some() {
+                    if let Ok(row_dt) = DateTime::parse_from_rfc3339(&entry.timestamp) {
+                        let row_utc = row_dt.with_timezone(&Utc);
+                        if let Some(ref s) = since_utc {
+                            if row_utc < *s {
+                                continue;
+                            }
+                        }
+                        if let Some(ref u) = until_utc {
+                            if row_utc > *u {
+                                continue;
+                            }
+                        }
+                    }
+                    // If timestamp can't be parsed, include the row (don't silently drop data)
+                }
+                results.push(entry);
+            }
+            Ok(results)
+        })
+        .await?
+    }
+
     async fn recall_namespaced(
         &self,
         namespace: &str,
@@ -1048,7 +1151,7 @@ impl Memory for SqliteMemory {
 
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
             let conn = conn.lock();
-            let now = Local::now().to_rfc3339();
+            let now = Utc::now().to_rfc3339();
             let cat = Self::category_to_str(&category);
             let id = Uuid::new_v4().to_string();
 
@@ -2344,6 +2447,227 @@ mod tests {
 
         // Should have 6 total entries (1 pre-existing + 5 new)
         assert_eq!(mem.count().await.unwrap(), 6);
+    }
+
+    // ── Export (GDPR Art. 20) tests ─────────────────────────
+
+    #[tokio::test]
+    async fn export_no_filter_returns_all_entries() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.store("a", "one", MemoryCategory::Core, None)
+            .await
+            .unwrap();
+        mem.store("b", "two", MemoryCategory::Daily, None)
+            .await
+            .unwrap();
+        mem.store("c", "three", MemoryCategory::Conversation, None)
+            .await
+            .unwrap();
+
+        let filter = ExportFilter::default();
+        let results = mem.export(&filter).await.unwrap();
+        assert_eq!(results.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn export_with_namespace_filter() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.store_with_metadata(
+            "a",
+            "ns1 data",
+            MemoryCategory::Core,
+            None,
+            Some("ns1"),
+            None,
+        )
+        .await
+        .unwrap();
+        mem.store_with_metadata(
+            "b",
+            "ns2 data",
+            MemoryCategory::Core,
+            None,
+            Some("ns2"),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let filter = ExportFilter {
+            namespace: Some("ns1".into()),
+            ..Default::default()
+        };
+        let results = mem.export(&filter).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].namespace, "ns1");
+    }
+
+    #[tokio::test]
+    async fn export_with_session_id_filter() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.store("a", "sess-a data", MemoryCategory::Core, Some("sess-a"))
+            .await
+            .unwrap();
+        mem.store("b", "sess-b data", MemoryCategory::Core, Some("sess-b"))
+            .await
+            .unwrap();
+
+        let filter = ExportFilter {
+            session_id: Some("sess-a".into()),
+            ..Default::default()
+        };
+        let results = mem.export(&filter).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].key, "a");
+    }
+
+    #[tokio::test]
+    async fn export_with_category_filter() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.store("a", "core data", MemoryCategory::Core, None)
+            .await
+            .unwrap();
+        mem.store("b", "daily data", MemoryCategory::Daily, None)
+            .await
+            .unwrap();
+
+        let filter = ExportFilter {
+            category: Some(MemoryCategory::Core),
+            ..Default::default()
+        };
+        let results = mem.export(&filter).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].category, MemoryCategory::Core);
+    }
+
+    #[tokio::test]
+    async fn export_with_time_range() {
+        let (_tmp, mem) = temp_sqlite();
+        // Store entries — created_at is set to Utc::now() by store()
+        mem.store("a", "old data", MemoryCategory::Core, None)
+            .await
+            .unwrap();
+        mem.store("b", "new data", MemoryCategory::Core, None)
+            .await
+            .unwrap();
+
+        // Export with a time range that covers everything
+        let filter = ExportFilter {
+            since: Some("2000-01-01T00:00:00Z".into()),
+            until: Some("2099-12-31T23:59:59Z".into()),
+            ..Default::default()
+        };
+        let results = mem.export(&filter).await.unwrap();
+        assert_eq!(results.len(), 2);
+
+        // Export with a time range in the far future (no results)
+        let filter = ExportFilter {
+            since: Some("2099-01-01T00:00:00Z".into()),
+            ..Default::default()
+        };
+        let results = mem.export(&filter).await.unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn export_with_combined_filters() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.store_with_metadata(
+            "a",
+            "match",
+            MemoryCategory::Core,
+            Some("sess-a"),
+            Some("ns1"),
+            None,
+        )
+        .await
+        .unwrap();
+        mem.store_with_metadata(
+            "b",
+            "no match ns",
+            MemoryCategory::Core,
+            Some("sess-a"),
+            Some("ns2"),
+            None,
+        )
+        .await
+        .unwrap();
+        mem.store_with_metadata(
+            "c",
+            "no match sess",
+            MemoryCategory::Core,
+            None,
+            Some("ns1"),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let filter = ExportFilter {
+            namespace: Some("ns1".into()),
+            session_id: Some("sess-a".into()),
+            category: Some(MemoryCategory::Core),
+            since: Some("2000-01-01T00:00:00Z".into()),
+            until: Some("2099-12-31T23:59:59Z".into()),
+        };
+        let results = mem.export(&filter).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].key, "a");
+    }
+
+    #[tokio::test]
+    async fn export_empty_database_returns_empty_vec() {
+        let (_tmp, mem) = temp_sqlite();
+        let filter = ExportFilter::default();
+        let results = mem.export(&filter).await.unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn export_ordering_is_chronological() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.store("first", "data1", MemoryCategory::Core, None)
+            .await
+            .unwrap();
+        // Small delay to ensure different timestamps
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        mem.store("second", "data2", MemoryCategory::Core, None)
+            .await
+            .unwrap();
+
+        let filter = ExportFilter::default();
+        let results = mem.export(&filter).await.unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(
+            results[0].timestamp <= results[1].timestamp,
+            "Export must be ordered by created_at ASC"
+        );
+    }
+
+    #[tokio::test]
+    async fn export_preserves_field_integrity() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.store_with_metadata(
+            "roundtrip_key",
+            "roundtrip content",
+            MemoryCategory::Custom("custom_cat".into()),
+            Some("sess-rt"),
+            Some("ns-rt"),
+            Some(0.9),
+        )
+        .await
+        .unwrap();
+
+        let filter = ExportFilter::default();
+        let results = mem.export(&filter).await.unwrap();
+        assert_eq!(results.len(), 1);
+        let e = &results[0];
+        assert_eq!(e.key, "roundtrip_key");
+        assert_eq!(e.content, "roundtrip content");
+        assert_eq!(e.category, MemoryCategory::Custom("custom_cat".into()));
+        assert_eq!(e.session_id.as_deref(), Some("sess-rt"));
+        assert_eq!(e.namespace, "ns-rt");
+        assert_eq!(e.importance, Some(0.9));
     }
 
     // ── §4.2 Reindex / corruption recovery tests ────────────

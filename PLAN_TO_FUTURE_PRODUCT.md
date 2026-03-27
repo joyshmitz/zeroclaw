@@ -58,9 +58,11 @@ This means:
 
 - primary signals and their operational meaning are central
 - signal providers are ingress mechanisms, not product identity
-- SOP is central
+- governed case formation and response-envelope selection are central
+- SOP is one of the execution mechanisms the fork uses, not the product identity
 - policy and governance are central
 - agentic cognition is valuable only when bounded by procedure, policy, and review
+- the fork builds orchestration over upstream substrate, not custom parallel systems
 
 This thesis is currently more important than any specific provider or implementation detail choice.
 
@@ -93,7 +95,7 @@ This means the fork may serve:
 - future edge/product scenarios
 
 The product identity is not “internal tooling” as such.
-Internal runtime use is the first product form because it is the fastest path to proving signal emergence, governed interpretation, SOP-bounded response, and PDCA feedback under real conditions.
+Internal runtime use is the first product form because it is the fastest path to proving signal emergence, governed interpretation, procedure-bounded response, and PDCA feedback under real conditions.
 
 It does **not** imply that the system should become a generic orchestration substrate or a transport-defined platform.
 
@@ -128,13 +130,14 @@ The fork may involve several distinct actors:
 
 PDCA remains a first-class framing principle.
 
-The PDCA framing here is strongly reinforced by the internal future-system framing that emphasized SOP, quality checks, alerts, CAPA, and Go/No-Go gates as the bridge between governed interpretation and corrective action.
+The PDCA framing here is strongly reinforced by the internal future-system framing that emphasized governed procedures, quality checks, alerts, CAPA, and Go/No-Go gates as the bridge between governed interpretation and corrective action.
 
 - `Plan`
-  - SOP
-  - policy
-  - thresholds
-  - gates
+  - classification rules and emergence criteria
+  - governed procedures (including SOP definitions)
+  - policy and autonomy boundaries
+  - thresholds and gates
+  - orchestration chain configuration
 - `Do`
   - execution of allowed actions
   - operator or agent-assisted workflow progress
@@ -207,28 +210,28 @@ Working rule:
 - do not let standards drag the plan into transport-first or certification-first thinking
 - introduce standard families only where they materially clarify controls, boundaries, or evidence requirements
 
-## SOP As Plan Core
+## Execution Substrate
 
-SOP should be treated as the most concrete current embodiment of `Plan`.
+The fork does not build its own execution mechanisms. It uses upstream components as substrate and connects them through a thin orchestration layer.
 
-In this fork, SOP is the strongest current mechanism for expressing intended behavior, turning signal interpretation into governed execution, and keeping procedure reviewable, versioned, and improvable over time.
+Upstream provides:
 
-However, SOP should not be mistaken for the whole system.
-The broader fork still includes other essential layers:
+- rule-based signal classification with configurable rules and pattern matching
+- event→action automation with configurable matching strategies and dispatch
+- bounded procedure execution with versioned, reviewable procedures
+- pre-execution approval gates with per-session and per-autonomy-level control
+- enforcement boundaries with command risk classification and workspace confinement
+- per-domain trust scoring with correction-driven autonomy adjustment
+- durable execution audit records
+- cross-cutting structured event observation
 
-- signal providers
-- normalization
-- policy and routing
-- evidence and audit
-- approvals and autonomy boundaries
-- execution context
-- future persistence or runtime ownership concerns
+The fork's product value is in:
 
-So the working view is:
+- the orchestration layer that connects these components into a governed response pipeline
+- the configuration that gives the chain its operational meaning
+- the GovernedCase concept as the durable operational unit binding signals, evidence, approvals, and outcomes
 
-- SOP is the current core of `Plan`
-- not the entirety of the future product
-- but the best current anchor for disciplined execution design
+SOP remains a key execution backend, but it is one mechanism among several, not the product identity.
 
 ## Autonomy Levels
 
@@ -542,7 +545,7 @@ In compact form:
 `signal -> interpretation -> policy/procedure selection -> governed execution -> evidence -> PDCA feedback`
 
 This is not yet a strict implementation sequence.
-It is a product-thinking sequence. The flow is broader than SOP alone, but SOP remains the most concrete anchor inside it.
+It is a product-thinking sequence. The flow is broader than any single execution mechanism.
 
 ## Interpretation Layer
 
@@ -568,15 +571,19 @@ The preferred direction is a graded interpretation cascade:
   - deduplication
   - threshold or rule match
   - obvious routing
+  - (implementation: upstream classifier + routines engine, driven by configuration)
 - structured contextual interpretation
   - process association
   - SOP or policy association
   - risk or priority enrichment
+  - (implementation: orchestration layer case and envelope decisions)
 - cognitive interpretation
   - ambiguity resolution
   - human-language understanding
   - explanation synthesis
   - difficult response recommendation
+  - (implementation: upstream LLM provider, invoked by orchestration layer
+    only when cheaper interpretation levels leave meaningful uncertainty)
 
 Guiding principle:
 
@@ -1013,7 +1020,7 @@ The first product form should be treated as:
 
 This is the right first product form because it matches the current anchor scenarios and the current strongest sources of value:
 
-- SOP-bounded handling
+- procedure-bounded handling
 - approval and autonomy control
 - evidence and audit trail
 - selective cognition
@@ -1034,7 +1041,7 @@ It is a deployment locus and runtime topology choice, not the thing that defines
 
 The product should be defined as:
 
-`a PDCA-governed response runtime that turns heterogeneous primary signals into governed cases, determines meaning and allowed response under SOP, policy, evidence, and autonomy constraints, coordinates bounded human/agent/runtime action, and feeds auditable outcomes back into Plan`
+`a PDCA-governed response runtime that turns heterogeneous primary signals into governed cases, determines meaning and allowed response under policy, evidence, and autonomy constraints, coordinates bounded human/agent/runtime action, and feeds auditable outcomes back into Plan`
 
 In shorter form:
 
@@ -1048,7 +1055,7 @@ This definition implies that the product core includes:
 - response-envelope selection
 - bounded execution or staged action
 - evidence and audit
-- feedback into SOP, policy, thresholds, and autonomy design
+- feedback into procedures, policy, thresholds, and autonomy design
 
 This definition also implies that the product is **not** defined by:
 
@@ -1153,8 +1160,97 @@ Revisit this document when one of these becomes true:
 1. a real workflow repeatedly fails without shared SOP runtime state
 2. a concrete signal-provider integration becomes high-value
 3. a production-grade edge use case appears
-4. upstream introduces meaningful SOP/DAG/orchestration primitives
+4. upstream introduces, refactors, or removes components that serve as fork substrate (classifier, routines, SOP, approval, trust, audit, session management, observer)
 5. fork drift cost becomes materially painful
+
+## Architectural Posture
+
+The fork's implementation posture is orchestration over upstream substrate.
+
+What must be code (the orchestration layer):
+- the chain connecting classifier output → case decision → envelope selection → execution routing → feedback recording
+- GovernedCase as a durable operational concept — binding signals, context, evidence, approvals, response envelope, outcomes, and PDCA feedback
+
+GovernedCase is not a session (sessions track conversation history per user). It is not an SOP run (SOP runs track procedure execution). It is the operational unit that answers: what situation are we governing, what do we know, what are we allowed to do, what have we done, and what should change in Plan as a result.
+
+Minimal GovernedCase carries:
+- case identity and type
+- originating signal reference
+- current response envelope (which modes are allowed)
+- evidence state (what is present, what is still required)
+- linked procedure activity (if any)
+- outcome and closure state
+- feedback disposition (close_only or plan_change_proposal)
+
+What must be configuration:
+- classification rules (signal types, emergence criteria)
+- routines (event → action mapping)
+- SOP definitions (bounded procedures)
+- trust thresholds and decay parameters
+- autonomy boundaries and approval policies
+
+Preference hierarchy:
+
+1. configure an existing upstream component
+2. orchestrate existing upstream components with minimal fork code
+3. extend an upstream component only when configuration and orchestration are insufficient
+
+Custom fork code should exist only where configuration cannot express the product need. But the orchestration layer — however thin — is what makes this a product rather than a deployment recipe.
+
+Boundary between upstream and fork orchestration:
+
+- upstream components make individual decisions:
+  - classifier decides what hint a message gets
+  - routines engine decides which events match which patterns
+  - SOP engine decides how to execute a procedure
+  - approval manager decides whether a tool call is permitted
+  - trust tracker decides what score a domain has
+
+- the fork orchestration layer makes the pipeline decision:
+  - given classifier output → does this open/update/skip a governed case?
+  - given case state + evidence → what response envelope applies?
+  - given response envelope → which upstream component handles execution?
+  - given execution outcome → what feedback disposition applies?
+
+Upstream components are stateless decision functions. The orchestration layer carries state across the pipeline (the GovernedCase) and makes the binding decisions between stages.
+
+Configuration surfaces (upstream-owned, fork-configured):
+
+- signal classification: `[classifier]` in config, via `QueryClassificationConfig`
+- event→action automation: `routines.toml` in workspace, via routines engine
+- bounded procedures: SOP files (`*.toml` + `*.md`) in `sops_dir`
+- trust scoring: `[trust]` in config, via `TrustConfig`
+- autonomy and enforcement: `[autonomy]` and `[security]` in config
+- approval policies: approval config + `AutonomyLevel` setting
+
+A governed response pipeline is configured by populating these surfaces with rules that express the operational meaning the fork intends. The orchestration layer reads these configurations and makes binding pipeline decisions based on them.
+
+Concrete example — quality incident through the pipeline:
+
+1. webhook delivers a structured payload to gateway
+2. classifier (upstream, configured) tags it as `deviation` based on classification rules
+3. routines engine (upstream, configured) matches the event and selects the appropriate SOP
+4. orchestration layer (fork code) opens or updates a GovernedCase, determines response envelope
+5. SOP engine (upstream) executes the bounded procedure
+6. approval manager (upstream) gates any medium/high-risk steps
+7. SOP audit (upstream) records the execution trail
+8. orchestration layer (fork code) evaluates outcome → trust adjustment → optional plan_change_proposal
+
+Fork code touches only steps 4 and 8. Everything else is upstream substrate driven by configuration.
+
+Why not custom fork systems (decided 2026-03-27):
+
+The fork previously carried custom SOP plumbing (factory functions, engine parameters through agent/tools/gateway constructors). This created merge conflicts on every upstream intake in four shared surfaces (agent.rs, tools/mod.rs, gateway/mod.rs, config/schema.rs) and pulled all fork thinking toward SOP as product identity. Upstream already provides the execution components. The fork's value is not in reimplementing them but in deciding when and how to invoke them.
+
+Working vocabulary:
+
+- **orchestration layer** — the fork-owned code that carries GovernedCase state across pipeline stages and makes binding decisions between upstream components. This is the same concept previously called "governed response layer" or "fork-owned seams" in maintainer docs.
+- **upstream substrate** — the set of upstream components the fork configures and invokes but does not reimplement.
+- **configuration** — fork-owned rules expressed through upstream config surfaces (classifier rules, routines.toml, SOP definitions, trust config, autonomy config).
+
+Deprecated terms (avoid in new writing):
+- "SOP wiring" — implies the product is about connecting SOP
+- "governed seam" without qualifier — ambiguous between config and code; use "orchestration concern" or "configuration concern"
 
 ## Working Conclusion
 

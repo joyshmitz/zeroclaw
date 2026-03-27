@@ -67,6 +67,8 @@ That scenario is the best first proof that the fork can:
 - capture evidence and outcome
 - emit reviewable PDCA feedback
 
+The fork expresses its product identity through orchestration of upstream substrate and configuration — not through custom reimplementation of upstream mechanisms.
+
 Working rule:
 
 - upstream can keep growing the runtime
@@ -94,6 +96,12 @@ Treat these areas as upstream-owned by default:
 
 These surfaces are important.
 They are not the fork's product identity by themselves.
+
+Fork ownership is expressed through two mechanisms:
+- **orchestration code** — the thin layer connecting upstream components into a governed pipeline
+- **configuration** — classification rules, routines, SOPs, trust parameters, autonomy policies
+
+Fork ownership does NOT mean reimplementing upstream mechanisms.
 
 ### Intentionally Own These Seams
 
@@ -124,6 +132,17 @@ Current caution surfaces:
 
 Take ownership there only when a fork seam is clear enough to reduce future
 merge cost rather than increase it.
+
+### Substrate Stability Rule
+
+The fork depends on specific upstream components as substrate. If upstream materially changes a substrate component:
+
+1. **Renamed or moved:** follow the rename, update configuration references. Zero fork code impact if orchestration layer uses traits or indirect references.
+2. **API changed:** adapt orchestration layer to new API at next intake. This is expected maintenance, not a crisis.
+3. **Removed:** evaluate replacement. If upstream provides an equivalent, migrate. If not, this is a signal to re-score repo-separation-criteria.md.
+4. **Replaced by something better:** adopt the replacement. The fork is substrate-agnostic — any upstream component that serves the same pipeline stage is acceptable.
+
+The orchestration layer should reference upstream components through the thinnest possible interface to minimize coupling.
 
 ## Next 3 Intake Cycles
 
@@ -192,6 +211,8 @@ The fork should not drift into:
 - LLM-first product identity
 - broad parallel replacement of upstream runtime substrate
 - broad fork-specific CLI or UI divergence before seam ownership is clear
+- reimplementing upstream components (classifier, routines, SOP, approval, trust, audit) when configuration and orchestration are sufficient
+- fork-specific SOP plumbing that creates merge conflicts with upstream tool/agent wiring
 
 ## Read Order
 
