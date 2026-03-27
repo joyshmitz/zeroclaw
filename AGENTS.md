@@ -117,6 +117,14 @@ Conflict-aware working rule:
 - Do not bypass failing checks without explicit explanation.
 - Do not hide behavior-changing side effects in refactor commits.
 - Do not include personal identity or sensitive information in test data, examples, docs, or commits.
+- Do not reimplement upstream components (classifier, routines, SOP, approval,
+  trust, audit) when configuration and orchestration are sufficient.
+- Do not pass upstream internals (e.g. SOP engine instances) through custom
+  parameter paths — let upstream manage its own plumbing.
+- Do not let the orchestration layer grow beyond what is strictly necessary for
+  case decision, envelope selection, and feedback routing. If orchestration code
+  exceeds the size of a single focused module, it is a signal that something
+  should be configuration or upstream substrate instead.
 
 ## Fork Product Guidance
 
@@ -124,7 +132,8 @@ When working on the fork’s product definition, planning documents, or related 
 
 - keep the center on `primary signal -> meaning -> governed response`
 - use PDCA as the governing framing
-- treat SOP as the current core of `Plan`
+- prefer configuring upstream components over writing fork code
+- fork code exists only for the orchestration chain that upstream cannot provide
 - keep signal type above delivery channel in product reasoning
 - apply cognition selectively, not maximally by default
 
@@ -154,6 +163,7 @@ Do not let planning or documentation work slide into:
 - workflow-engine-first framing
 - edge-first framing
 - LLM-first framing
+- SOP-first framing (SOP is an execution backend, not the product)
 
 The product is defined by governed interpretation and response to heterogeneous primary signals, not by any one standard, provider, transport, or deployment topology.
 ## Linked References

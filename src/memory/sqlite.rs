@@ -4,7 +4,7 @@ use super::vector;
 use crate::config::schema::SearchMode;
 use anyhow::Context;
 use async_trait::async_trait;
-use chrono::Local;
+use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 use std::fmt::Write as _;
@@ -282,7 +282,7 @@ impl SqliteMemory {
         }
 
         let hash = Self::content_hash(text);
-        let now = Local::now().to_rfc3339();
+        let now = Utc::now().to_rfc3339();
 
         // Check cache (offloaded to blocking thread)
         let conn = self.conn.clone();
@@ -514,12 +514,12 @@ impl SqliteMemory {
                 idx += 1;
             }
             if let Some(s) = since_ref {
-                let _ = write!(sql, " AND created_at >= ?{idx}");
+                let _ = write!(sql, " AND datetime(created_at) >= datetime(?{idx})");
                 param_values.push(Box::new(s.to_string()));
                 idx += 1;
             }
             if let Some(u) = until_ref {
-                let _ = write!(sql, " AND created_at <= ?{idx}");
+                let _ = write!(sql, " AND datetime(created_at) <= datetime(?{idx})");
                 param_values.push(Box::new(u.to_string()));
                 idx += 1;
             }
@@ -581,7 +581,7 @@ impl Memory for SqliteMemory {
 
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
             let conn = conn.lock();
-            let now = Local::now().to_rfc3339();
+            let now = Utc::now().to_rfc3339();
             let cat = Self::category_to_str(&category);
             let id = Uuid::new_v4().to_string();
 
@@ -727,13 +727,23 @@ impl Memory for SqliteMemory {
                 for scored in &merged {
                     if let Some((key, content, cat, ts, sid, ns, imp, sup)) = entry_map.remove(&scored.id) {
                         if let Some(s) = since_ref {
-                            if ts.as_str() < s {
-                                continue;
+                            if let (Ok(row_dt), Ok(bound_dt)) = (
+                                DateTime::parse_from_rfc3339(&ts),
+                                DateTime::parse_from_rfc3339(s),
+                            ) {
+                                if row_dt.with_timezone(&Utc) < bound_dt.with_timezone(&Utc) {
+                                    continue;
+                                }
                             }
                         }
                         if let Some(u) = until_ref {
-                            if ts.as_str() > u {
-                                continue;
+                            if let (Ok(row_dt), Ok(bound_dt)) = (
+                                DateTime::parse_from_rfc3339(&ts),
+                                DateTime::parse_from_rfc3339(u),
+                            ) {
+                                if row_dt.with_timezone(&Utc) > bound_dt.with_timezone(&Utc) {
+                                    continue;
+                                }
                             }
                         }
                         let entry = MemoryEntry {
@@ -778,11 +788,11 @@ impl Memory for SqliteMemory {
                     let mut param_idx = keywords.len() * 2 + 1;
                     let mut time_conditions = String::new();
                     if since_ref.is_some() {
-                        let _ = write!(time_conditions, " AND created_at >= ?{param_idx}");
+                        let _ = write!(time_conditions, " AND datetime(created_at) >= datetime(?{param_idx})");
                         param_idx += 1;
                     }
                     if until_ref.is_some() {
-                        let _ = write!(time_conditions, " AND created_at <= ?{param_idx}");
+                        let _ = write!(time_conditions, " AND datetime(created_at) <= datetime(?{param_idx})");
                         param_idx += 1;
                     }
                     let sql = format!(
@@ -1031,18 +1041,26 @@ impl Memory for SqliteMemory {
             if let Some(ref cat) = filter.category {
                 let _ = write!(sql, " AND category = ?{idx}");
                 param_values.push(Box::new(Self::category_to_str(cat)));
-                idx += 1;
+                let _ = idx; // last SQL param — no further idx increments needed
             }
-            if let Some(ref since) = filter.since {
-                let _ = write!(sql, " AND created_at >= ?{idx}");
-                param_values.push(Box::new(since.clone()));
-                idx += 1;
-            }
-            if let Some(ref until) = filter.until {
-                let _ = write!(sql, " AND created_at <= ?{idx}");
-                param_values.push(Box::new(until.clone()));
-                let _ = idx;
-            }
+            // Time filtering uses parsed UTC comparison (not string comparison)
+            // to handle mixed timezone offsets in upgraded databases where legacy
+            // rows store local offsets (+HH:MM) and new rows store UTC (Z).
+            let since_utc = filter
+                .since
+                .as_deref()
+                .map(DateTime::parse_from_rfc3339)
+                .transpose()
+                .map_err(|e| anyhow::anyhow!("invalid 'since' timestamp: {e}"))?
+                .map(|dt| dt.with_timezone(&Utc));
+            let until_utc = filter
+                .until
+                .as_deref()
+                .map(DateTime::parse_from_rfc3339)
+                .transpose()
+                .map_err(|e| anyhow::anyhow!("invalid 'until' timestamp: {e}"))?
+                .map(|dt| dt.with_timezone(&Utc));
+
             sql.push_str(" ORDER BY created_at ASC");
 
             let mut stmt = conn.prepare(&sql)?;
@@ -1065,7 +1083,25 @@ impl Memory for SqliteMemory {
 
             let mut results = Vec::new();
             for row in rows {
-                results.push(row?);
+                let entry = row?;
+                // Post-filter by time range using parsed UTC comparison
+                if since_utc.is_some() || until_utc.is_some() {
+                    if let Ok(row_dt) = DateTime::parse_from_rfc3339(&entry.timestamp) {
+                        let row_utc = row_dt.with_timezone(&Utc);
+                        if let Some(ref s) = since_utc {
+                            if row_utc < *s {
+                                continue;
+                            }
+                        }
+                        if let Some(ref u) = until_utc {
+                            if row_utc > *u {
+                                continue;
+                            }
+                        }
+                    }
+                    // If timestamp can't be parsed, include the row (don't silently drop data)
+                }
+                results.push(entry);
             }
             Ok(results)
         })
@@ -1115,7 +1151,7 @@ impl Memory for SqliteMemory {
 
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
             let conn = conn.lock();
-            let now = Local::now().to_rfc3339();
+            let now = Utc::now().to_rfc3339();
             let cat = Self::category_to_str(&category);
             let id = Uuid::new_v4().to_string();
 
@@ -2507,7 +2543,7 @@ mod tests {
     #[tokio::test]
     async fn export_with_time_range() {
         let (_tmp, mem) = temp_sqlite();
-        // Store entries — created_at is set to Local::now() by store()
+        // Store entries — created_at is set to Utc::now() by store()
         mem.store("a", "old data", MemoryCategory::Core, None)
             .await
             .unwrap();

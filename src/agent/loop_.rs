@@ -2506,6 +2506,36 @@ fn maybe_inject_channel_delivery_defaults(
     channel_name: &str,
     channel_reply_target: Option<&str>,
 ) {
+    // Inject active channel + recipient into escalate_to_human when not
+    // explicitly provided, so the escalation reaches the right destination.
+    // Treat missing, null, non-string, and empty-string values the same way
+    // — all mean "model didn't supply a usable value".
+    if tool_name == "escalate_to_human" {
+        if let Some(args) = tool_args.as_object_mut() {
+            let channel_usable = args
+                .get("channel")
+                .and_then(|v| v.as_str())
+                .is_some_and(|s| !s.trim().is_empty());
+            if !channel_usable {
+                args.insert("channel".into(), serde_json::json!(channel_name));
+            }
+
+            let recipient_usable = args
+                .get("recipient")
+                .and_then(|v| v.as_str())
+                .is_some_and(|s| !s.trim().is_empty());
+            if !recipient_usable {
+                if let Some(rt) = channel_reply_target
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+                {
+                    args.insert("recipient".into(), serde_json::json!(rt));
+                }
+            }
+        }
+        return;
+    }
+
     if tool_name != "cron_add" {
         return;
     }

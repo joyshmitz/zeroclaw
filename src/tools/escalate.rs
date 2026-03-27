@@ -3,10 +3,11 @@
 //! Exposes `escalate_to_human` as an agent-callable tool that sends a structured
 //! escalation message to a messaging channel. High/critical urgency escalations
 //! additionally fire a Pushover mobile notification when credentials are available.
-//! Supports optional blocking mode to wait for a human response.
+//! Fire-and-forget only — blocking mode is not supported because
+//! `Channel::listen()` is exclusive on most channel backends.
 
 use super::traits::{Tool, ToolResult};
-use crate::channels::traits::{Channel, ChannelMessage, SendMessage};
+use crate::channels::traits::{Channel, SendMessage};
 use crate::security::policy::ToolOperation;
 use crate::security::SecurityPolicy;
 use crate::tools::ask_user::ChannelMapHandle;
@@ -19,8 +20,6 @@ use std::sync::Arc;
 
 const PUSHOVER_API_URL: &str = "https://api.pushover.net/1/messages.json";
 const PUSHOVER_REQUEST_TIMEOUT_SECS: u64 = 15;
-const DEFAULT_TIMEOUT_SECS: u64 = 600;
-
 const VALID_URGENCY_LEVELS: &[&str] = &["low", "medium", "high", "critical"];
 
 /// Agent-callable tool for escalating situations to a human operator with urgency routing.
@@ -172,8 +171,7 @@ impl Tool for EscalateToHumanTool {
     fn description(&self) -> &str {
         "Escalate a situation to a human operator with urgency routing. \
          Sends a structured message to the active channel. High/critical urgency \
-         also triggers a Pushover mobile notification when configured. \
-         Optionally blocks to wait for a human response."
+         also triggers a Pushover mobile notification when configured."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -193,13 +191,13 @@ impl Tool for EscalateToHumanTool {
                     "enum": ["low", "medium", "high", "critical"],
                     "description": "Urgency level (default: medium). high/critical triggers Pushover notification."
                 },
-                "wait_for_response": {
-                    "type": "boolean",
-                    "description": "Block and return the human's reply (default: false)"
+                "recipient": {
+                    "type": "string",
+                    "description": "Chat/room/channel ID to send the escalation to (e.g. Slack channel ID, Discord channel ID, Matrix room ID). Required for channel-based deployments."
                 },
-                "timeout_secs": {
-                    "type": "integer",
-                    "description": "Seconds to wait for a response when wait_for_response is true (default: 600)"
+                "channel": {
+                    "type": "string",
+                    "description": "Target channel name. Defaults to the first available channel if omitted."
                 }
             },
             "required": ["summary"]
@@ -251,15 +249,16 @@ impl Tool for EscalateToHumanTool {
             });
         }
 
-        let wait_for_response = args
-            .get("wait_for_response")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let recipient = args
+            .get("recipient")
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default();
 
-        let timeout_secs = args
-            .get("timeout_secs")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(DEFAULT_TIMEOUT_SECS);
+        let requested_channel = args
+            .get("channel")
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string());
 
         // Format the message
         let text = Self::format_message(urgency, &summary, context.as_deref());
@@ -274,14 +273,26 @@ impl Tool for EscalateToHumanTool {
                     error: Some("No channels available yet (channels not initialized)".to_string()),
                 });
             }
-            let (name, ch) = channels.iter().next().ok_or_else(|| {
-                anyhow::anyhow!("No channels available. Configure at least one channel.")
-            })?;
-            (name.clone(), ch.clone())
+            if let Some(ref name) = requested_channel {
+                let ch = channels.get(name.as_str()).cloned().ok_or_else(|| {
+                    let available: Vec<String> = channels.keys().cloned().collect();
+                    anyhow::anyhow!(
+                        "Channel '{}' not found. Available: {}",
+                        name,
+                        available.join(", ")
+                    )
+                })?;
+                (name.clone(), ch)
+            } else {
+                let (name, ch) = channels.iter().next().ok_or_else(|| {
+                    anyhow::anyhow!("No channels available. Configure at least one channel.")
+                })?;
+                (name.clone(), ch.clone())
+            }
         };
 
         // Send the escalation message
-        let msg = SendMessage::new(&text, "");
+        let msg = SendMessage::new(&text, &recipient);
         if let Err(e) = channel.send(&msg).await {
             return Ok(ToolResult {
                 success: false,
@@ -297,55 +308,28 @@ impl Tool for EscalateToHumanTool {
             self.send_pushover(urgency, &summary).await;
         }
 
-        if wait_for_response {
-            // Block and wait for human response (same pattern as ask_user)
-            let (tx, mut rx) = tokio::sync::mpsc::channel::<ChannelMessage>(1);
-            let timeout = std::time::Duration::from_secs(timeout_secs);
-
-            let listen_channel = Arc::clone(&channel);
-            let listen_handle = tokio::spawn(async move { listen_channel.listen(tx).await });
-
-            let response = tokio::time::timeout(timeout, rx.recv()).await;
-            listen_handle.abort();
-
-            match response {
-                Ok(Some(msg)) => Ok(ToolResult {
-                    success: true,
-                    output: msg.content,
-                    error: None,
-                }),
-                Ok(None) => Ok(ToolResult {
-                    success: false,
-                    output: "TIMEOUT".to_string(),
-                    error: Some("Channel closed before receiving a response".to_string()),
-                }),
-                Err(_) => Ok(ToolResult {
-                    success: false,
-                    output: "TIMEOUT".to_string(),
-                    error: Some(format!(
-                        "No response received within {timeout_secs} seconds"
-                    )),
-                }),
-            }
-        } else {
-            // Non-blocking: return confirmation
-            Ok(ToolResult {
-                success: true,
-                output: json!({
-                    "status": "escalated",
-                    "urgency": urgency,
-                    "channel": channel_name,
-                })
-                .to_string(),
-                error: None,
+        // Fire-and-forget: return confirmation.
+        // Blocking mode (spawning a second listener) is intentionally not
+        // supported — Channel::listen() is exclusive on Telegram, Webhook,
+        // and other channels, so a second call would conflict with the
+        // supervised listener started by start_channels().
+        Ok(ToolResult {
+            success: true,
+            output: json!({
+                "status": "escalated",
+                "urgency": urgency,
+                "channel": channel_name,
             })
-        }
+            .to_string(),
+            error: None,
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::channels::traits::ChannelMessage;
 
     /// A stub channel that records sent messages but never produces incoming messages.
     struct SilentChannel {
@@ -383,54 +367,6 @@ mod tests {
         }
     }
 
-    /// A stub channel that immediately responds with a canned message.
-    struct RespondingChannel {
-        channel_name: String,
-        response: String,
-        sent: Arc<RwLock<Vec<String>>>,
-    }
-
-    impl RespondingChannel {
-        fn new(name: &str, response: &str) -> Self {
-            Self {
-                channel_name: name.to_string(),
-                response: response.to_string(),
-                sent: Arc::new(RwLock::new(Vec::new())),
-            }
-        }
-    }
-
-    #[async_trait]
-    impl Channel for RespondingChannel {
-        fn name(&self) -> &str {
-            &self.channel_name
-        }
-
-        async fn send(&self, message: &SendMessage) -> anyhow::Result<()> {
-            self.sent.write().push(message.content.clone());
-            Ok(())
-        }
-
-        async fn listen(
-            &self,
-            tx: tokio::sync::mpsc::Sender<ChannelMessage>,
-        ) -> anyhow::Result<()> {
-            let msg = ChannelMessage {
-                id: "resp_1".to_string(),
-                sender: "human".to_string(),
-                reply_target: "human".to_string(),
-                content: self.response.clone(),
-                channel: self.channel_name.clone(),
-                timestamp: 1000,
-                thread_ts: None,
-                interruption_scope_id: None,
-                attachments: vec![],
-            };
-            let _ = tx.send(msg).await;
-            Ok(())
-        }
-    }
-
     fn make_tool_with_channels(channels: Vec<(&str, Arc<dyn Channel>)>) -> EscalateToHumanTool {
         let tool =
             EscalateToHumanTool::new(Arc::new(SecurityPolicy::default()), PathBuf::from("/tmp"));
@@ -464,15 +400,14 @@ mod tests {
         assert!(schema["properties"]["summary"].is_object());
         assert!(schema["properties"]["urgency"].is_object());
         assert!(schema["properties"]["context"].is_object());
-        assert!(schema["properties"]["wait_for_response"].is_object());
-        assert!(schema["properties"]["timeout_secs"].is_object());
+        assert!(schema["properties"]["recipient"].is_object());
+        assert!(schema["properties"]["channel"].is_object());
         let required = schema["required"].as_array().unwrap();
         assert!(required.iter().any(|v| v == "summary"));
         // Optional fields should not be in required
         assert!(!required.iter().any(|v| v == "urgency"));
         assert!(!required.iter().any(|v| v == "context"));
-        assert!(!required.iter().any(|v| v == "wait_for_response"));
-        assert!(!required.iter().any(|v| v == "timeout_secs"));
+        assert!(!required.iter().any(|v| v == "recipient"));
     }
 
     // ── 3. test_default_urgency_is_medium ──
@@ -564,52 +499,7 @@ mod tests {
         assert_eq!(parsed["channel"], "slack");
     }
 
-    // ── 8. test_blocking_mode_returns_response ──
-
-    #[tokio::test]
-    async fn test_blocking_mode_returns_response() {
-        let tool = make_tool_with_channels(vec![(
-            "test",
-            Arc::new(RespondingChannel::new("test", "Approved, go ahead")) as Arc<dyn Channel>,
-        )]);
-
-        let result = tool
-            .execute(json!({
-                "summary": "Need deployment approval",
-                "wait_for_response": true,
-                "timeout_secs": 5
-            }))
-            .await
-            .unwrap();
-
-        assert!(result.success, "error: {:?}", result.error);
-        assert_eq!(result.output, "Approved, go ahead");
-    }
-
-    // ── 9. test_blocking_mode_timeout ──
-
-    #[tokio::test]
-    async fn test_blocking_mode_timeout() {
-        let tool = make_tool_with_channels(vec![(
-            "test",
-            Arc::new(SilentChannel::new("test")) as Arc<dyn Channel>,
-        )]);
-
-        let result = tool
-            .execute(json!({
-                "summary": "Waiting for response",
-                "wait_for_response": true,
-                "timeout_secs": 1
-            }))
-            .await
-            .unwrap();
-
-        assert!(!result.success);
-        assert_eq!(result.output, "TIMEOUT");
-        assert!(result.error.as_deref().unwrap().contains("1 seconds"));
-    }
-
-    // ── 10. test_pushover_not_required ──
+    // ── 8. test_pushover_not_required ──
 
     #[tokio::test]
     async fn test_pushover_not_required() {
